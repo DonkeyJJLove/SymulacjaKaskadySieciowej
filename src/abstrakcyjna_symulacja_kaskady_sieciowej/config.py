@@ -8,6 +8,7 @@ import yaml
 
 
 DEFAULT_RUNTIME_CONFIG: dict[str, Any] = {
+    "model_name": "maij_1",
     "scenario": "impas",
     "years": 3,
     "seed_base": 12345,
@@ -29,6 +30,14 @@ DEFAULT_RUNTIME_CONFIG: dict[str, Any] = {
     "sobol_conf_level": 0.95,
     "n_jobs": -1,
     "outputs_dir": "outputs",
+}
+
+
+SUPPORTED_SCENARIOS = {
+    "impas",
+    "szybka_wojna",
+    "dlugotrwala_wojna",
+    "eskalacja_regionalna",
 }
 
 
@@ -63,13 +72,13 @@ def _flatten_config(data: dict[str, Any]) -> dict[str, Any]:
     """
     flat: dict[str, Any] = {}
 
-    # jeśli wygląda jak płaski runtime config, bierzemy pola bezpośrednio
     runtime_keys = set(DEFAULT_RUNTIME_CONFIG.keys())
     direct_hits = runtime_keys.intersection(data.keys())
     for key in direct_hits:
         flat[key] = data[key]
 
-    # mapowanie z formatu hierarchicznego
+    if "model_name" in data:
+        flat["model_name"] = data["model_name"]
     if "scenario" in data:
         flat["scenario"] = data["scenario"]
     if "years" in data:
@@ -171,6 +180,7 @@ def _coerce_types(cfg: dict[str, Any]) -> dict[str, Any]:
         "sobol_conf_level",
     }
     str_keys = {
+        "model_name",
         "scenario",
         "outputs_dir",
     }
@@ -197,8 +207,11 @@ def _coerce_types(cfg: dict[str, Any]) -> dict[str, Any]:
 
 
 def validate_runtime_config(cfg: dict[str, Any]) -> dict[str, Any]:
+    if "model_name" in cfg and not isinstance(cfg["model_name"], str):
+        raise ValueError("model_name musi być stringiem")
+
     scenario = cfg["scenario"]
-    if scenario not in {"impas", "szybka_wojna", "eskalacja_regionalna"}:
+    if scenario not in SUPPORTED_SCENARIOS:
         raise ValueError(f"Nieobsługiwany scenariusz: {scenario}")
 
     if cfg["years"] <= 0:
@@ -228,7 +241,10 @@ def validate_runtime_config(cfg: dict[str, Any]) -> dict[str, Any]:
     return cfg
 
 
-def load_runtime_config(config_path: str | Path, cli_overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+def load_runtime_config(
+    config_path: str | Path | None,
+    cli_overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     cfg = deepcopy(DEFAULT_RUNTIME_CONFIG)
 
     if config_path:

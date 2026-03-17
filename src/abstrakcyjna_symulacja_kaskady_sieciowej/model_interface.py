@@ -30,12 +30,71 @@ GSA_PARAM_NAMES: list[str] = [
 ]
 
 
+def default_params_dict() -> dict[str, float]:
+    """Zwraca domyślne parametry modelu jako słownik."""
+    return asdict(Params())
+
+
+def available_param_names() -> list[str]:
+    """Lista wszystkich nazw parametrów dostępnych w Params."""
+    return sorted(default_params_dict().keys())
+
+
+def validate_param_overrides(overrides: dict[str, Any] | None) -> None:
+    """Waliduje nadpisania parametrów przed budową obiektu Params."""
+    if overrides is None:
+        return
+
+    if not isinstance(overrides, dict):
+        raise TypeError("overrides musi być słownikiem dict[str, float].")
+
+    base = default_params_dict()
+    unknown = [key for key in overrides if key not in base]
+    if unknown:
+        raise KeyError(
+            f"Unknown parameter(s): {unknown}. "
+            f"Available parameters: {available_param_names()}"
+        )
+
+    non_numeric = [key for key, value in overrides.items() if not isinstance(value, (int, float))]
+    if non_numeric:
+        raise TypeError(
+            f"Non-numeric override(s): {non_numeric}. "
+            "All parameter overrides must be int or float."
+        )
+
+
+def validate_gsa_param_names(dist_spec: dict[str, Any] | None = None) -> None:
+    """
+    Sprawdza spójność listy GSA_PARAM_NAMES z Params oraz opcjonalnie z dist_spec.
+    dist_spec może być np. słownikiem rozkładów z gsa_common.py.
+    """
+    base = default_params_dict()
+
+    missing_in_params = [name for name in GSA_PARAM_NAMES if name not in base]
+    if missing_in_params:
+        raise RuntimeError(
+            f"GSA_PARAM_NAMES zawiera parametry nieobecne w Params: {missing_in_params}"
+        )
+
+    if dist_spec is not None:
+        missing_in_dist = [name for name in GSA_PARAM_NAMES if name not in dist_spec]
+        if missing_in_dist:
+            raise RuntimeError(
+                f"GSA_PARAM_NAMES zawiera parametry nieobecne w dist_spec: {missing_in_dist}"
+            )
+
+
 def build_params(overrides: dict[str, float] | None = None) -> Params:
-    base = asdict(Params())
+    """
+    Buduje obiekt Params z opcjonalnymi nadpisaniami.
+    """
+    validate_param_overrides(overrides)
+    base = default_params_dict()
+
     for key, value in (overrides or {}).items():
-        if key not in base:
-            raise KeyError(f"Unknown parameter '{key}'.")
         base[key] = float(value)
+
     return Params(**base)
 
 
@@ -48,8 +107,18 @@ def run_model(
     elite_crit: float,
     elite_streak_weeks: int,
 ) -> dict[str, float]:
+    """
+    Uruchamia model dla zadanych parametrów i zwraca metryki końcowe.
+    """
     model_params = build_params(params)
-    df = simulate(model_params, scenario=scenario, years=years, seed=seed)
+
+    df = simulate(
+        model_params,
+        scenario=scenario,
+        years=years,
+        seed=seed,
+    )
+
     return compute_metrics(
         df,
         years=years,

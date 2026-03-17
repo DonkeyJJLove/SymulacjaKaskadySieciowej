@@ -20,22 +20,26 @@ def sigmoid(x: float) -> float:
 @dataclass
 class Params:
     oil_export_cap: float = 1.0
-    k_san_oil: float = 0.6
-    k_war_oil: float = 0.7
+    k_san_oil: float = 0.60
+    k_war_oil: float = 0.70
     k_rev: float = 0.12
     k_war_spend: float = 0.10
     k_subsidy: float = 0.06
     k_san_leak: float = 0.04
-    pi_base: float = 0.35
+
+    pi_base: float = 0.18
     pi_target: float = 0.10
-    k_pi_san: float = 0.25
-    k_pi_war: float = 0.35
-    k_pi_fisc: float = 0.20
-    a_inf: float = 4.0
-    a_fisc: float = 3.0
-    a_war: float = 2.0
-    r0: float = 0.9
-    r_w: float = 0.3
+    k_pi_san: float = 0.12
+    k_pi_war: float = 0.18
+    k_pi_fisc: float = 0.12
+
+    a_inf: float = 2.0
+    a_fisc: float = 1.6
+    a_war: float = 1.1
+
+    r0: float = 0.90
+    r_w: float = 0.30
+
     k_mob: float = 0.08
     k_demob: float = 0.10
     b1: float = 2.5
@@ -46,41 +50,48 @@ class Params:
     c1: float = 2.0
     c2: float = 1.0
     c3: float = 0.6
+
     k_rally: float = 0.06
     tau_rally: float = 26.0
     k_fatigue: float = 0.05
     k_price: float = 0.015
     k_disp: float = 0.004
     k_morale_recover: float = 0.03
-    k_cons: float = 0.075
-    k_info: float = 0.02
-    k_loss_p: float = 0.060
-    k_loss_e: float = 0.040
-    k_loss_w: float = 0.03
+
+    k_cons: float = 0.110
+    k_info: float = 0.030
+    k_loss_p: float = 0.040
+    k_loss_e: float = 0.020
+    k_loss_w: float = 0.015
     k_rally_s: float = 0.05
-    k_stab_recover: float = 0.070
+    k_stab_recover: float = 0.120
+
     k_elite_rally: float = 0.02
-    k_elite_cost: float = 0.02
-    k_elite_protest: float = 0.015
+    k_elite_cost: float = 0.015
+    k_elite_protest: float = 0.010
     k_elite_recover: float = 0.12
-    k_pay: float = 0.05
+
+    k_pay: float = 0.070
     k_loss_l: float = 0.04
     k_split: float = 0.03
     k_loyal_recover: float = 0.02
+
     k_info_invest: float = 0.03
     k_info_emerg: float = 0.04
     k_info_deg_w: float = 0.03
     k_info_decay_calm: float = 0.01
+
     k_troop_up: float = 0.05
     k_troop_down: float = 0.04
     k_troop_attr: float = 0.02
+
     k_disp_w: float = 0.05
     k_disp_p: float = 0.03
     k_disp_e: float = 0.01
     k_return: float = 0.03
+
     oil_price_base: float = 1.0
     k_price_shock: float = 0.5
-
 
 def scenario_exog(t_week: int, scenario: str) -> tuple[float, float]:
     if scenario == "szybka_wojna":
@@ -104,6 +115,16 @@ def scenario_exog(t_week: int, scenario: str) -> tuple[float, float]:
 def step(state: dict[str, float], t_week: int, p: Params, scenario: str) -> dict[str, float]:
     war, sanctions = scenario_exog(t_week, scenario)
 
+    mods = scenario_modifiers(scenario)
+    war_cost_mult = mods["war_cost_mult"]
+    repr_mult = mods["repr_mult"]
+    recovery_mult = mods["recovery_mult"]
+    disp_mult = mods["disp_mult"]
+
+    post_shock_recovery = 0.0
+    if scenario == "szybka_wojna" and t_week >= 12:
+        post_shock_recovery = 0.02
+
     oil_price = p.oil_price_base * (1.0 + p.k_price_shock * war)
     revenue = p.oil_export_cap * (1.0 - p.k_san_oil * sanctions) * (1.0 - p.k_war_oil * war) * oil_price
     revenue = max(0.0, revenue)
@@ -119,21 +140,33 @@ def step(state: dict[str, float], t_week: int, p: Params, scenario: str) -> dict
     elite = state["Elite"]
     loyal = state["Loyal"]
     info = state["Info"]
-    repr_cap = clip((p.r0 * loyal * elite + p.r_w * war) * info)
+    repr_cap = clip(((p.r0 * loyal * elite + p.r_w * war) * info) * repr_mult)
 
     morale = state["Morale"]
     displaced = state["Displaced"]
     rally_term = p.k_rally * war * math.exp(-t_week / p.tau_rally)
     morale_next = clip(
-        morale + rally_term - p.k_fatigue * (war + estress) - p.k_price * inflation - p.k_disp * displaced + p.k_morale_recover * calm * (1.0 - morale)
+        morale + rally_term
+        - p.k_fatigue * (war + estress)
+        - p.k_price * inflation
+        - p.k_disp * displaced
+        + p.k_morale_recover * calm * (1.0 - morale)
+        + post_shock_recovery * calm * (1.0 - morale)
     )
 
     inflow = p.k_rev * revenue
     outflow = p.k_war_spend * war + p.k_subsidy * (1.0 - morale_next) + p.k_san_leak * sanctions
-    fiscal_next = clip(fiscal + inflow - outflow + 0.01 * calm * (1.0 - fiscal))
+    fiscal_next = clip(
+        fiscal + inflow - outflow
+        + 0.01 * calm * (1.0 - fiscal)
+        + 0.5 * post_shock_recovery * calm * (1.0 - fiscal)
+    )
 
     info_next = clip(
-        info + p.k_info_invest * fiscal_next + p.k_info_emerg * (war + state["Protest"]) - p.k_info_deg_w * war - p.k_info_decay_calm * calm * info
+        info + p.k_info_invest * fiscal_next + p.k_info_emerg * (war + state["Protest"])
+        - p.k_info_deg_w * war
+        - p.k_info_decay_calm * calm * info
+        + 0.3 * post_shock_recovery * calm * (1.0 - info)
     )
 
     protest = state["Protest"]
@@ -145,7 +178,7 @@ def step(state: dict[str, float], t_week: int, p: Params, scenario: str) -> dict
 
     stab = state["Stab"]
     elite_eq = clip(0.38 + 0.28 * stab, 0.22, 0.82)
-    elite_damage = p.k_elite_cost * (0.75 * estress + 0.45 * war) + 1.20 * p.k_elite_protest * protest_next
+    elite_damage = p.k_elite_cost * (0.75 * estress + 0.45 * war * war_cost_mult) + 1.20 * p.k_elite_protest * protest_next
     elite_next = clip(elite + p.k_elite_rally * war * (1.0 - elite) - elite_damage * elite + 0.75 * p.k_elite_recover * (elite_eq - elite))
 
     loyal_next = clip(
@@ -160,14 +193,14 @@ def step(state: dict[str, float], t_week: int, p: Params, scenario: str) -> dict
         + p.k_rally_s * war * math.exp(-t_week / p.tau_rally)
         - p.k_loss_p * protest_next
         - p.k_loss_e * estress
-        - p.k_loss_w * war
-        + p.k_stab_recover * calm * (1.0 - stab)
+        - p.k_loss_w * war * war_cost_mult
+        + p.k_stab_recover * recovery_mult * calm * (1.0 - stab)
     )
 
     troops = state["Troops"]
     troops_next = clip(troops + p.k_troop_up * war * (1.0 - troops) - p.k_troop_down * (1.0 - war) * troops - p.k_troop_attr * war * troops)
 
-    new_disp = p.k_disp_w * war + p.k_disp_p * protest_next * repr_cap + p.k_disp_e * estress
+    new_disp = disp_mult * (p.k_disp_w * war + p.k_disp_p * protest_next * repr_cap + p.k_disp_e * estress)
     returns = p.k_return * (1.0 - war) * (1.0 - protest_next) * state["Displaced"]
     displaced_next = max(0.0, state["Displaced"] + new_disp - returns)
 
@@ -264,3 +297,32 @@ def monte_carlo(base_params: Params, scenario: str, years: int = 3, n: int = 500
         df_i = simulate(params_i, scenario=scenario, years=years, seed=seed + i + 1)
         rows.append(compute_metrics(df_i, years=years, **metric_kwargs))
     return pd.DataFrame(rows)
+
+def scenario_modifiers(scenario: str) -> dict[str, float]:
+    if scenario == "szybka_wojna":
+        return {
+            "war_cost_mult": 1.10,
+            "repr_mult": 0.95,
+            "recovery_mult": 1.20,
+            "disp_mult": 1.00,
+        }
+    if scenario == "dlugotrwala_wojna":
+        return {
+            "war_cost_mult": 1.15,
+            "repr_mult": 0.98,
+            "recovery_mult": 0.95,
+            "disp_mult": 1.10,
+        }
+    if scenario == "eskalacja_regionalna":
+        return {
+            "war_cost_mult": 1.40,
+            "repr_mult": 0.88,
+            "recovery_mult": 0.85,
+            "disp_mult": 1.35,
+        }
+    return {
+        "war_cost_mult": 1.00,
+        "repr_mult": 1.00,
+        "recovery_mult": 1.00,
+        "disp_mult": 1.00,
+    }

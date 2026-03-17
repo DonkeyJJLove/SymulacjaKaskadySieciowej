@@ -15,7 +15,7 @@ from SALib.sample.sobol import sample as sobol_sample
 from sklearn.linear_model import LogisticRegression
 from tqdm import tqdm
 
-from .config import load_runtime_config
+from .config import SUPPORTED_SCENARIOS, load_runtime_config
 from .gsa_common import (
     aggregate_replicates,
     build_problem_unit_hypercube,
@@ -31,6 +31,7 @@ from .model_interface import GSA_PARAM_NAMES, run_model
 
 def _plot_timeseries(df: pd.DataFrame, scenario: str, out_dir: Path) -> Path:
     fig, axes = plt.subplots(3, 2, figsize=(14, 11), sharex=True)
+
     axes[0, 0].plot(df["year"], df["Stab"], label="Stab")
     axes[0, 0].plot(df["year"], df["Elite"], label="Elite")
     axes[0, 0].plot(df["year"], df["Loyal"], label="Loyal")
@@ -75,9 +76,11 @@ def _plot_timeseries(df: pd.DataFrame, scenario: str, out_dir: Path) -> Path:
 def _plot_mc_hist(mc: pd.DataFrame, scenario: str, out_dir: Path) -> Path:
     fig, axes = plt.subplots(2, 3, figsize=(15, 9))
     cols = ["Tcrit", "elite_fracture_prob", "avg_loyal", "peak_protest", "end_displaced_m"]
+
     for ax, col in zip(axes.flat, cols):
         ax.hist(mc[col], bins=30, alpha=0.85)
         ax.set_title(col)
+
     axes.flat[-1].axis("off")
     out = out_dir / f"mc_hist_{scenario}.png"
     plt.tight_layout()
@@ -114,11 +117,17 @@ def _eval_gsa_point(param_dict: dict[str, float], cfg: dict[str, object], rep_se
     return aggregate_replicates(metrics)
 
 
+def _save_runtime_config(cfg: dict[str, object], out_dir: Path) -> None:
+    save_json(cfg, out_dir / "runtime_config.json")
+
+
 def run_simulate(cfg: dict[str, object]) -> int:
     out_dir = ensure_dir(cfg["outputs_dir"])
     scenario = str(cfg["scenario"])
     years = int(cfg["years"])
     seed_base = int(cfg["seed_base"])
+
+    _save_runtime_config(cfg, Path(out_dir))
 
     thresholds = {
         "stab_crit": float(cfg["stab_crit"]),
@@ -144,7 +153,7 @@ def run_simulate(cfg: dict[str, object]) -> int:
             spread=float(cfg["mc_spread"]),
             metric_kwargs=thresholds,
         )
-        mc.to_csv(Path(out_dir) / f"mc_metrics_{scenario}.csv", index=False)
+        mc.to_csv(Path(out_dir) / "matlab_monte_carlo.csv", index=False)
         save_json(_summarize_mc(mc), Path(out_dir) / f"mc_summary_{scenario}.json")
         _plot_mc_hist(mc, scenario, Path(out_dir))
 
@@ -154,6 +163,8 @@ def run_simulate(cfg: dict[str, object]) -> int:
 
 def run_morris(cfg: dict[str, object]) -> int:
     out_dir = ensure_dir(Path(str(cfg["outputs_dir"])) / "morris")
+    _save_runtime_config(cfg, Path(out_dir))
+
     problem = build_problem_unit_hypercube(GSA_PARAM_NAMES)
 
     X_unit = morris_sample(
@@ -210,6 +221,8 @@ def run_morris(cfg: dict[str, object]) -> int:
 
 def run_sobol(cfg: dict[str, object]) -> int:
     out_dir = ensure_dir(Path(str(cfg["outputs_dir"])) / "sobol")
+    _save_runtime_config(cfg, Path(out_dir))
+
     problem = build_problem_unit_hypercube(GSA_PARAM_NAMES)
 
     X_unit = sobol_sample(
@@ -260,8 +273,18 @@ def run_sobol(cfg: dict[str, object]) -> int:
         ).sort_values("ST", ascending=False)
 
         frame.to_csv(Path(out_dir) / f"sobol_{metric}_main.csv", index=False)
-        plot_sobol_bars(Si, GSA_PARAM_NAMES, f"Sobol dla {metric}", str(Path(out_dir) / f"sobol_{metric}_bars.png"))
-        plot_sobol_s2_heatmap(Si, GSA_PARAM_NAMES, f"Sobol S2 dla {metric}", str(Path(out_dir) / f"sobol_{metric}_s2.png"))
+        plot_sobol_bars(
+            Si,
+            GSA_PARAM_NAMES,
+            f"Sobol dla {metric}",
+            str(Path(out_dir) / f"sobol_{metric}_bars.png"),
+        )
+        plot_sobol_s2_heatmap(
+            Si,
+            GSA_PARAM_NAMES,
+            f"Sobol S2 dla {metric}",
+            str(Path(out_dir) / f"sobol_{metric}_s2.png"),
+        )
 
         summary[metric] = {
             "status": "ok",
@@ -319,7 +342,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--scenario", choices=["impas", "szybka_wojna", "eskalacja_regionalna"])
+    common.add_argument("--scenario", choices=sorted(SUPPORTED_SCENARIOS))
     common.add_argument("--years", type=int)
     common.add_argument("--seed-base", dest="seed_base", type=int)
     common.add_argument("--rep-seed-stride", dest="rep_seed_stride", type=int)
@@ -328,15 +351,24 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--elite-streak-weeks", dest="elite_streak_weeks", type=int)
     common.add_argument("--n-jobs", dest="n_jobs", type=int)
     common.add_argument("--out-dir", dest="outputs_dir")
+    common.add_argument("--model-name", dest="model_name")
 
-    simulate_p = subparsers.add_parser("simulate", parents=[common], help="Uruchom pojedynczą symulację i opcjonalnie MC")
+    simulate_p = subparsers.add_parser(
+        "simulate",
+        parents=[common],
+        help="Uruchom pojedynczą symulację i opcjonalnie MC",
+    )
     simulate_p.add_argument("--mc-enabled", dest="mc_enabled", action="store_true")
     simulate_p.add_argument("--no-mc", dest="mc_enabled", action="store_false")
     simulate_p.add_argument("--mc", dest="mc_n", type=int)
     simulate_p.add_argument("--spread", dest="mc_spread", type=float)
     simulate_p.set_defaults(mc_enabled=None)
 
-    morris_p = subparsers.add_parser("morris", parents=[common], help="Uruchom screening Morrisa")
+    morris_p = subparsers.add_parser(
+        "morris",
+        parents=[common],
+        help="Uruchom screening Morrisa",
+    )
     morris_p.add_argument("--n-reps", dest="n_reps", type=int)
     morris_p.add_argument("--morris-num-levels", dest="morris_num_levels", type=int)
     morris_p.add_argument("--morris-trajectories", dest="morris_trajectories", type=int)
@@ -345,7 +377,11 @@ def build_parser() -> argparse.ArgumentParser:
     morris_p.add_argument("--no-morris-local-optimization", dest="morris_local_optimization", action="store_false")
     morris_p.set_defaults(morris_local_optimization=None)
 
-    sobol_p = subparsers.add_parser("sobol", parents=[common], help="Uruchom analizę Sobola")
+    sobol_p = subparsers.add_parser(
+        "sobol",
+        parents=[common],
+        help="Uruchom analizę Sobola",
+    )
     sobol_p.add_argument("--n-reps", dest="n_reps", type=int)
     sobol_p.add_argument("--sobol-N", dest="sobol_N", type=int)
     sobol_p.add_argument("--sobol-calc-second-order", dest="sobol_calc_second_order", action="store_true")
@@ -364,6 +400,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    # bifurcation nie wymaga config.yaml
+    if args.command == "bifurcation":
+        return run_bifurcation(args.data)
+
     raw_overrides = {
         k: v
         for k, v in vars(args).items()
@@ -378,8 +418,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_morris(cfg)
     if args.command == "sobol":
         return run_sobol(cfg)
-    if args.command == "bifurcation":
-        return run_bifurcation(args.data)
 
     parser.error(f"Nieznana komenda: {args.command}")
     return 2
