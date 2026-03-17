@@ -1,4 +1,4 @@
-function out = matj_4_current_test(action, varargin)
+function out = matj_4(action, varargin)
 % MATJ_4_CURRENT_TEST
 % Aktualny kompletny test modelu MATLAB dla repozytorium
 % SymulacjaKaskadySieciowej.

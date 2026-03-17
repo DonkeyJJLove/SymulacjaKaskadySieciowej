@@ -1,0 +1,14 @@
+timestamp=2026-03-17 19:26:54
+matlab_version=25.2.0.3150157 (R2025b) Update 4
+years=3
+seed=42
+quality_score=88.939421
+mc_use_python_rng=0
+save_figures=0
+save_tables=1
+save_reports=1
+save_workspace=1
+headless=1
+out_dir=outputs_matlab\20260317_192654301
+scenarios=szybka_wojna,dlugotrwala_wojna,impas,eskalacja_regionalna
+python_available=1
