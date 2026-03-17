@@ -1,20 +1,63 @@
-# QUALITY
-
 ```text
 QUALITY
 
 MODEL
-  Name:        matj_4.m
+  Name:        matj_4_current_test.m
   Repository:  DonkeyJJLove/SymulacjaKaskadySieciowej
   Status:      BARDZO DOBRY
-  Score:       88.94 / 100
+  Score:       88.9394 / 100
 
 CURRENT INTERPRETATION
 
-  Model przeszedł z etapu formalnie poprawnej implementacji do etapu
-  używalnego modelu badawczego. Rdzeń symulacji działa stabilnie,
-  scenariusze są rozróżnialne, a testy nie wskazują już globalnego
-  kolapsu wszystkich trajektorii.
+  Model osiągnął stan używalnego modelu badawczego. Rdzeń symulacji jest
+  stabilny formalnie, scenariusze są rozróżnialne, a testy nie wskazują
+  już globalnego kolapsu wszystkich trajektorii.
+
+  Jednocześnie model pozostaje częściowo wrażliwy kalibracyjnie. Najbardziej
+  obciążony pozostaje scenariusz "szybka_wojna", w którym występuje pełne
+  załamanie stabilności i maksymalny pik protestu.
+
+SCENARIOS
+
+  [szybka_wojna]
+    Tcrit                =  91.0000
+    elite_fracture_prob  =   1.0000
+    peak_protest         =   1.0000
+    min_stab             =   0.0000
+    mean_stab            =   0.4840
+    final_stab           =   0.0000
+    stress_area          =   0.8015
+    drawdown             =   1.0000
+
+  [dlugotrwala_wojna]
+    Tcrit                = 157.0000
+    elite_fracture_prob  =   0.0000
+    peak_protest         =   0.2090
+    min_stab             =   0.6556
+    mean_stab            =   0.9530
+    final_stab           =   0.8612
+    stress_area          =   0.9033
+    drawdown             =   0.1388
+
+  [impas]
+    Tcrit                = 157.0000
+    elite_fracture_prob  =   0.0000
+    peak_protest         =   0.4386
+    min_stab             =   0.6632
+    mean_stab            =   0.8784
+    final_stab           =   0.7319
+    stress_area          =   0.8761
+    drawdown             =   0.2888
+
+  [eskalacja_regionalna]
+    Tcrit                = 157.0000
+    elite_fracture_prob  =   0.0000
+    peak_protest         =   0.1860
+    min_stab             =   0.6499
+    mean_stab            =   0.8917
+    final_stab           =   0.7432
+    stress_area          =   0.9129
+    drawdown             =   0.2568
 
 CURRENT QUALITY TABLE
 
@@ -31,23 +74,29 @@ CURRENT QUALITY TABLE
 
 WHAT THIS MEANS
 
-  [1] Model nie wpada już automatycznie w pełny kolaps dla wszystkich
-      scenariuszy. Test no_global_collapse przechodzi.
+  [1] Model nie wpada już automatycznie w pełny kolaps we wszystkich
+      scenariuszach. Test no_global_collapse przechodzi.
 
-  [2] Stres nie jest już stale nasycony dla wszystkich trajektorii.
+  [2] Stres nie jest już całkowicie nasycony we wszystkich przebiegach.
       Test stress_dynamic_range przechodzi.
 
-  [3] Logika scenariuszy jest obecnie zgodna z oczekiwanym porządkiem
-      jakościowym. Test scenario_order przechodzi.
+  [3] Logika scenariuszy jest obecnie akceptowalna jakościowo.
+      Test scenario_order przechodzi.
+
+  [4] Monte Carlo przechodzi, ale z umiarkowanym wynikiem 63.3333 / 100,
+      co oznacza, że model pozostaje wrażliwy na perturbacje parametrów.
 
 KNOWN LIMITATIONS
 
   [1] Model nie jest jeszcze końcowo skalibrowany empirycznie.
 
-  [2] Scenariusz "szybka_wojna" nadal może uruchamiać późny mechanizm
-      załamania przez kanał protestowy.
+  [2] Scenariusz "szybka_wojna" nadal generuje pełne załamanie stabilności,
+      pełny drawdown i maksymalny protest. To wymaga dalszego strojenia.
 
-  [3] python_compare ma status SKIP, jeśli nie podano katalogu
+  [3] Test realism przechodzi, ale wynik 62.5000 / 100 wskazuje, że część
+      trajektorii nadal znajduje się blisko granic przestrzeni stanów.
+
+  [4] python_compare ma status SKIP, jeśli nie podano katalogu
       python_outputs_dir.
 
 QUALITY CRITERIA
@@ -131,7 +180,7 @@ OUTPUT INSPECTION
 
 NEXT STEPS
 
-  [1] Kalibracja scenariusza "szybka_wojna".
+  [1] Dalsza kalibracja scenariusza "szybka_wojna".
   [2] Walidacja MATLAB↔Python tydzień po tygodniu.
   [3] Uruchomienie Sobol / GSA dla aktualnej kalibracji.
   [4] Zawężenie rozkładów parametrów Monte Carlo po kolejnej iteracji.
