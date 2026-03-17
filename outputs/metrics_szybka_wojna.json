@@ -1,0 +1,13 @@
+{
+  "Tcrit": 91.0,
+  "elite_fracture_prob": 1.0,
+  "time_to_elite_fracture": 106.0,
+  "weeks_below_elite_crit": 50.0,
+  "avg_loyal": 0.020289432433919348,
+  "peak_protest": 1.0,
+  "end_displaced_m": 2.013908917961336,
+  "mean_elite": 0.45999461901425887,
+  "min_elite": 0.3185466224514345,
+  "mean_stab": 0.4840450244445936,
+  "min_stab": 0.0
+}
