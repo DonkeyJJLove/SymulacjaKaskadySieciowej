@@ -1,384 +1,1088 @@
-%% matj_1.m
-% Kompletny test modelu dyskretnego w MATLAB
-% Cel:
-% 1) uruchomić model w kilku scenariuszach,
-% 2) policzyć statystyki porównawcze,
-% 3) wykonać testy jakości modelu,
-% 4) wygenerować samoocenę jakości i funkcji modelu.
+function out = matj_4_current_test(action, varargin)
+% MATJ_4_CURRENT_TEST
+% Aktualny kompletny test modelu MATLAB dla repozytorium
+% SymulacjaKaskadySieciowej.
 %
-% Uruchomienie:
-% >> matj_1
+% Zawiera:
+% - wierny rdzeń step/simulate/compute_metrics
+% - aktualną kalibrację odsuwającą model od globalnego kolapsu
+% - scenariuszowe mnożniki kosztu wojny / represji / odbudowy / wysiedleń
+% - test_suite z PASS/FAIL/SKIP
+% - Monte Carlo
+% - hooki GSA / Sobol
+% - opcjonalny eksport tabel, raportów, workspace i figur
 %
-% Wymagania:
-% - MATLAB R2016b+ (skrypt z lokalnymi funkcjami na końcu pliku)
+% Użycie:
+%   r  = matj_4_current_test('test');
+%   r2 = matj_4_current_test('test', ...
+%           'save_figures', false, 'save_tables', true, ...
+%           'save_reports', true, 'save_workspace', true, ...
+%           'headless', true);
+%   df = matj_4_current_test('simulate','scenario','impas','years',3,'seed',12345);
+%   m  = matj_4_current_test('compute_metrics', df, 3, ...
+%           'stab_crit',0.30,'elite_crit',0.35,'elite_streak_weeks',4);
+%   mc = matj_4_current_test('monte_carlo','scenario','impas','years',3,'n',100,'spread',0.20,'seed',42);
+%   sp = matj_4_current_test('spec');
+%
+%   r = matj_4_current_test('test', ...
+%    'save_figures', false, ...
+%    'save_tables', true, ...
+%    'save_reports', true, ...
+%    'save_workspace', true, ...
+%    'headless', true);
+%
+%   r.quality_table
+%   type(fullfile(r.out_dir,'report.txt'))
 
-clear; clc; close all;
-rng(42, 'twister');
 
-fprintf('============================================================\n');
-fprintf('MATJ_1 :: TEST MODELU DYSKRETNEGO\n');
-fprintf('============================================================\n\n');
 
-%% 1. PARAMETRY GŁÓWNE
-p = default_params();
-T = 104;                    % 104 tygodnie = 2 lata
-t = (0:T)';
 
-%% 2. DEFINICJA SCENARIUSZY
-scenarios = define_scenarios(T);
+    if nargin == 0 || isempty(action)
+        action = 'test';
+    end
+    action = lower(string(action));
 
-%% 3. SYMULACJE SCENARIUSZY
-results = struct();
-for i = 1:numel(scenarios)
-    results(i).name = scenarios(i).name;
-    results(i).desc = scenarios(i).desc;
-    results(i).exo  = scenarios(i).exo;
-    results(i).sim  = simulate_model(T, p, scenarios(i).exo, scenarios(i).init);
-    results(i).met  = compute_metrics(results(i).sim, scenarios(i).exo);
+    switch action
+        case "default_params"
+            out = default_params();
+
+        case "default_thresholds"
+            out = default_thresholds();
+
+        case "spec"
+            out = build_spec_struct(default_params(), default_thresholds());
+
+        case "simulate"
+            out = action_simulate(varargin{:});
+
+        case "compute_metrics"
+            out = action_compute_metrics(varargin{:});
+
+        case "compute_extra_metrics"
+            if nargin < 2
+                error('matj_4_current_test:compute_extra_metrics', 'Podaj tabelę symulacji.');
+            end
+            out = compute_extra_metrics(varargin{1});
+
+        case "monte_carlo"
+            out = action_monte_carlo(varargin{:});
+
+        case "transform_unit_samples_to_params"
+            out = action_transform_unit_samples(varargin{:});
+
+        case "aggregate_replicates"
+            out = action_aggregate_replicates(varargin{:});
+
+        case "sobol"
+            out = action_sobol(varargin{:});
+
+        case "test"
+            out = action_test(varargin{:});
+
+        otherwise
+            error('matj_4_current_test:unknownAction', 'Nieznana akcja: %s', action);
+    end
 end
 
-%% 4. RAPORT SCENARIUSZY
-fprintf('--- WYNIKI SCENARIUSZY ---\n');
-for i = 1:numel(results)
-    m = results(i).met;
-    fprintf('\n[%d] %s\n', i, results(i).name);
-    fprintf('    Opis: %s\n', results(i).desc);
-    fprintf('    Y_end                = %.4f\n', m.Y_end);
-    fprintf('    Y_mean               = %.4f\n', m.Y_mean);
-    fprintf('    Y_min                = %.4f\n', m.Y_min);
-    fprintf('    F_mean               = %.4f\n', m.F_mean);
-    fprintf('    reliefEff_mean       = %.4f\n', m.reliefEff_mean);
-    fprintf('    R_oil_mean           = %.4f\n', m.R_oil_mean);
-    fprintf('    max_drawdown_Y       = %.4f\n', m.max_drawdown_Y);
-    fprintf('    volatility_Y         = %.4f\n', m.volatility_Y);
-    fprintf('    recovery_ratio       = %.4f\n', m.recovery_ratio);
-    fprintf('    weeks_below_0_4      = %d\n',    m.weeks_below_0_4);
-    fprintf('    clip_rate_Y          = %.4f\n', m.clip_rate_Y);
-    fprintf('    finite_ok            = %d\n',   m.finite_ok);
-    fprintf('    bounds_ok            = %d\n',   m.bounds_ok);
+%% =====================================================================
+%% ACTIONS
+%% =====================================================================
+function df = action_simulate(varargin)
+    p = inputParser;
+    addParameter(p, 'scenario', 'impas');
+    addParameter(p, 'years', 3);
+    addParameter(p, 'seed', 42);
+    addParameter(p, 'params', default_params());
+    addParameter(p, 'init_state', []);
+    parse(p, varargin{:});
+
+    df = simulate_model(p.Results.params, char(p.Results.scenario), ...
+        p.Results.years, p.Results.seed, p.Results.init_state);
 end
 
-%% 5. TESTY JAKOŚCIOWE MODELU
-quality = struct();
-
-% Test 1: brak NaN/Inf i poprawne ograniczenia [0,1] dla zmiennych znormalizowanych
-quality.test_finite_and_bounds = test_finite_and_bounds(results);
-
-% Test 2: logika rang scenariuszy:
-% baseline powinien kończyć się wyżej niż stress,
-% relief powinien kończyć się wyżej niż stress,
-% shock powinien mieć większe obsunięcie niż baseline
-quality.test_scenario_ranking = test_scenario_ranking(results);
-
-% Test 3: monotoniczność krótkoterminowa względem sankcji
-quality.test_sanction_monotonicity = test_sanction_monotonicity(p);
-
-% Test 4: wrażliwość na ulgę (Rf_t)
-quality.test_relief_monotonicity = test_relief_monotonicity(p);
-
-% Test 5: stabilność lokalna - mała perturbacja stanu nie może wysadzić trajektorii
-quality.test_local_stability = test_local_stability(p);
-
-% Test 6: test Monte Carlo - odporność średniej jakości przy losowych trajektoriach egzogenicznych
-quality.test_monte_carlo = test_monte_carlo(p);
-
-%% 6. AGREGACJA WYNIKÓW TESTÓW
-[quality_score, quality_table] = aggregate_quality(quality);
-
-fprintf('\n============================================================\n');
-fprintf('RAPORT TESTÓW JAKOŚCIOWYCH\n');
-fprintf('============================================================\n');
-for i = 1:size(quality_table,1)
-    fprintf('%-34s  score = %6.2f / %6.2f   status = %s\n', ...
-        quality_table{i,1}, quality_table{i,2}, quality_table{i,3}, quality_table{i,4});
-end
-fprintf('------------------------------------------------------------\n');
-fprintf('ŁĄCZNY WYNIK JAKOŚCI MODELU: %.2f / 100\n', quality_score);
-
-if quality_score >= 85
-    final_label = 'BARDZO DOBRY';
-elseif quality_score >= 70
-    final_label = 'DOBRY';
-elseif quality_score >= 50
-    final_label = 'WARUNKOWO POPRAWNY';
-else
-    final_label = 'SŁABY / WYMAGA REKALIBRACJI';
-end
-fprintf('OCENA KOŃCOWA: %s\n', final_label);
-
-%% 7. STATYSTYKI PORÓWNAWCZE MIĘDZY SCENARIUSZAMI
-comparison = comparative_stats(results);
-
-fprintf('\n============================================================\n');
-fprintf('STATYSTYKI PORÓWNAWCZE\n');
-fprintf('============================================================\n');
-fprintf('Najlepszy scenariusz wg Y_end      : %s\n', comparison.best_by_Y_end);
-fprintf('Najgorszy scenariusz wg Y_end      : %s\n', comparison.worst_by_Y_end);
-fprintf('Najmniejsze obsunięcie             : %s\n', comparison.best_drawdown);
-fprintf('Największa zmienność               : %s\n', comparison.max_volatility);
-fprintf('Najwyższa średnia reliefEff        : %s\n', comparison.best_relief);
-fprintf('Najwyższa średnia renta naftowa    : %s\n', comparison.best_oil);
-
-%% 8. WYKRESY
-plot_all(results, t, quality_score, final_label);
-
-%% 9. PODSUMOWANIE TEKSTOWE
-fprintf('\n============================================================\n');
-fprintf('INTERPRETACJA AUTOMATYCZNA\n');
-fprintf('============================================================\n');
-
-baseIdx   = find(strcmp({results.name}, 'baseline'));
-stressIdx = find(strcmp({results.name}, 'stress'));
-relIdx    = find(strcmp({results.name}, 'relief'));
-
-if ~isempty(baseIdx) && ~isempty(stressIdx)
-    delta_base_stress = results(baseIdx).met.Y_end - results(stressIdx).met.Y_end;
-    fprintf('Różnica Y_end (baseline - stress): %.4f\n', delta_base_stress);
-end
-
-if ~isempty(relIdx) && ~isempty(stressIdx)
-    delta_rel_stress = results(relIdx).met.Y_end - results(stressIdx).met.Y_end;
-    fprintf('Różnica Y_end (relief - stress):   %.4f\n', delta_rel_stress);
-end
-
-fprintf(['Model sam zweryfikował: ograniczenia stanów, poprawność numeryczną, ' ...
-         'logikę rang scenariuszy, monotoniczność względem sankcji i ulgi, ' ...
-         'lokalną stabilność oraz odporność Monte Carlo.\n']);
-
-fprintf('\nKoniec testu MATJ_1.\n');
-
-%% ====================== FUNKCJE LOKALNE ===============================
-
-function p = default_params()
-    p.dt = 1.0;
-
-    % kanał naftowy
-    p.oilExportBase = 0.85;
-    p.alpha_san = 0.70;
-    p.alpha_h   = 0.55;
-
-    % agregacja fiskalno-realna
-    p.w_Y   = 0.62;
-    p.w_oil = 0.38;
-
-    % równanie produkcji
-    p.r     = 0.060;
-    p.d_X   = 0.120;
-    p.d_san = 0.110;
-    p.d_P   = 0.060;
-    p.d_M   = 0.050;
-    p.a     = 0.045;
-    p.eta   = 0.120;
-end
-
-function scenarios = define_scenarios(T)
-    init.Y0 = 0.72;
-    init.P0 = 0.25;
-    init.M0 = 0.20;
-    init.oilInfra0 = 0.88;
-
-    % baseline
-    exo1.X   = 0.18 * ones(T,1);
-    exo1.San = 0.32 * ones(T,1);
-    exo1.H   = 0.10 * ones(T,1);
-    exo1.O   = 1.05 * ones(T,1);
-    exo1.Rf  = 0.22 * ones(T,1);
-
-    % stress
-    exo2.X   = 0.45 * ones(T,1);
-    exo2.San = 0.70 * ones(T,1);
-    exo2.H   = 0.50 * ones(T,1);
-    exo2.O   = 1.10 * ones(T,1);
-    exo2.Rf  = 0.10 * ones(T,1);
-
-    % relief
-    exo3.X   = 0.22 * ones(T,1);
-    exo3.San = 0.35 * ones(T,1);
-    exo3.H   = 0.12 * ones(T,1);
-    exo3.O   = 1.08 * ones(T,1);
-    exo3.Rf  = 0.55 * ones(T,1);
-
-    % shock: silny szok przez pierwsze 20 tygodni, potem częściowa normalizacja
-    exo4.X   = [0.70 * ones(20,1); 0.28 * ones(T-20,1)];
-    exo4.San = [0.85 * ones(20,1); 0.45 * ones(T-20,1)];
-    exo4.H   = [0.65 * ones(20,1); 0.20 * ones(T-20,1)];
-    exo4.O   = [1.25 * ones(20,1); 1.08 * ones(T-20,1)];
-    exo4.Rf  = [0.08 * ones(20,1); 0.30 * ones(T-20,1)];
-
-    scenarios(1).name = 'baseline';
-    scenarios(1).desc = 'Umiarkowana presja, umiarkowane sankcje, stabilne otoczenie';
-    scenarios(1).exo  = exo1;
-    scenarios(1).init = init;
-
-    scenarios(2).name = 'stress';
-    scenarios(2).desc = 'Wysoka presja i sankcje, silne zakłócenia';
-    scenarios(2).exo  = exo2;
-    scenarios(2).init = init;
-
-    scenarios(3).name = 'relief';
-    scenarios(3).desc = 'Umiarkowane warunki, ale wysoki komponent ulgi/zasilenia';
-    scenarios(3).exo  = exo3;
-    scenarios(3).init = init;
-
-    scenarios(4).name = 'shock';
-    scenarios(4).desc = 'Silny szok początkowy i późniejsza częściowa normalizacja';
-    scenarios(4).exo  = exo4;
-    scenarios(4).init = init;
-end
-
-function sim = simulate_model(T, p, exo, init)
-    clip = @(x) min(max(x,0),1);
-
-    Y = zeros(T+1,1);
-    P = zeros(T+1,1);
-    M = zeros(T+1,1);
-    oilInfra = zeros(T+1,1);
-
-    oilExport = zeros(T,1);
-    R_oil     = zeros(T,1);
-    F         = zeros(T,1);
-    reliefEff = zeros(T,1);
-
-    Y(1) = init.Y0;
-    P(1) = init.P0;
-    M(1) = init.M0;
-    oilInfra(1) = init.oilInfra0;
-
-    Y_clip_count = 0;
-    P_clip_count = 0;
-    M_clip_count = 0;
-    I_clip_count = 0;
-
-    for k = 1:T
-        oilExport(k) = p.oilExportBase * (1 - p.alpha_san * exo.San(k)) * (1 - p.alpha_h * exo.H(k));
-        R_oil(k)     = clip(oilExport(k) * oilInfra(k)) * exo.O(k);
-        F(k)         = clip(p.w_Y * Y(k) + p.w_oil * R_oil(k));
-        reliefEff(k) = clip(0.5 * F(k) + 0.5 * exo.Rf(k));
-
-        rawY = Y(k) + p.dt * ( ...
-              p.r * (1 - Y(k)) ...
-            - p.d_X * exo.X(k) ...
-            - p.d_san * exo.San(k) ...
-            - p.d_P * P(k) ...
-            - p.d_M * M(k) ...
-            + p.a * (1 - exo.San(k)) * (1 - exo.X(k)) ...
-            + p.eta * reliefEff(k));
-
-        % Proste równania pomocnicze dla pełniejszej dynamiki testowej
-        rawP = P(k) + p.dt * ( ...
-              0.18 * exo.X(k) ...
-            + 0.12 * exo.San(k) ...
-            + 0.10 * exo.H(k) ...
-            - 0.16 * reliefEff(k) ...
-            - 0.08 * Y(k));
-
-        rawM = M(k) + p.dt * ( ...
-              0.10 * exo.X(k) ...
-            + 0.14 * exo.H(k) ...
-            + 0.05 * P(k) ...
-            - 0.07 * Y(k) ...
-            - 0.10 * reliefEff(k));
-
-        rawI = oilInfra(k) + p.dt * ( ...
-              0.05 * Y(k) ...
-            - 0.12 * exo.H(k) ...
-            - 0.06 * exo.X(k) ...
-            + 0.04 * exo.Rf(k));
-
-        Y(k+1) = clip(rawY);
-        P(k+1) = clip(rawP);
-        M(k+1) = clip(rawM);
-        oilInfra(k+1) = clip(rawI);
-
-        Y_clip_count = Y_clip_count + double(rawY < 0 || rawY > 1);
-        P_clip_count = P_clip_count + double(rawP < 0 || rawP > 1);
-        M_clip_count = M_clip_count + double(rawM < 0 || rawM > 1);
-        I_clip_count = I_clip_count + double(rawI < 0 || rawI > 1);
+function met = action_compute_metrics(varargin)
+    if nargin < 1
+        error('matj_4_current_test:compute_metrics', ...
+            'Podaj tabelę symulacji jako pierwszy argument.');
     end
 
-    sim.Y = Y;
-    sim.P = P;
-    sim.M = M;
-    sim.oilInfra = oilInfra;
-    sim.oilExport = oilExport;
-    sim.R_oil = R_oil;
-    sim.F = F;
-    sim.reliefEff = reliefEff;
-    sim.Y_clip_count = Y_clip_count;
-    sim.P_clip_count = P_clip_count;
-    sim.M_clip_count = M_clip_count;
-    sim.I_clip_count = I_clip_count;
-    sim.T = T;
+    df = varargin{1};
+    start_idx = 2;
+
+    if nargin >= 2 && isnumeric(varargin{2}) && isscalar(varargin{2})
+        start_idx = 3; % years wspierane dla zgodności, ale nieużywane
+    end
+
+    thr = default_thresholds();
+    if nargin >= start_idx
+        p = inputParser;
+        addParameter(p, 'stab_crit', thr.stab_crit);
+        addParameter(p, 'elite_crit', thr.elite_crit);
+        addParameter(p, 'elite_streak_weeks', thr.elite_streak_weeks);
+        parse(p, varargin{start_idx:end});
+        thr.stab_crit = p.Results.stab_crit;
+        thr.elite_crit = p.Results.elite_crit;
+        thr.elite_streak_weeks = p.Results.elite_streak_weeks;
+    end
+
+    met = compute_metrics(df, thr);
 end
 
-function met = compute_metrics(sim, exo)
-    y = sim.Y;
-    dy = diff(y);
+function mc = action_monte_carlo(varargin)
+    p = inputParser;
+    addParameter(p, 'scenario', 'impas');
+    addParameter(p, 'years', 3);
+    addParameter(p, 'n', 100);
+    addParameter(p, 'spread', 0.20);
+    addParameter(p, 'seed', 42);
+    addParameter(p, 'params', default_params());
+    addParameter(p, 'mc_use_python_rng', false);
+    parse(p, varargin{:});
 
-    peak = -inf;
-    max_dd = 0;
-    for i = 1:numel(y)
-        peak = max(peak, y(i));
+    mc = monte_carlo_model(p.Results.params, char(p.Results.scenario), ...
+        p.Results.years, p.Results.n, p.Results.seed, p.Results.spread, ...
+        p.Results.mc_use_python_rng);
+end
+
+function out = action_transform_unit_samples(varargin)
+    if nargin < 1
+        error('matj_4_current_test:transform', 'Podaj macierz U z [0,1].');
+    end
+    U = varargin{1};
+    specs = default_gsa_param_specs();
+    if nargin >= 2 && ~isempty(varargin{2})
+        specs = varargin{2};
+    end
+    out = transform_unit_samples_to_params(U, specs);
+end
+
+function out = action_aggregate_replicates(varargin)
+    if nargin < 1
+        error('matj_4_current_test:aggregate_replicates', 'Podaj tablicę wyników replik.');
+    end
+    out = aggregate_replicates(varargin{1});
+end
+
+function out = action_sobol(varargin)
+    p = inputParser;
+    addParameter(p, 'scenario', 'impas');
+    addParameter(p, 'years', 3);
+    addParameter(p, 'N', 256);
+    addParameter(p, 'seed_base', 42);
+    addParameter(p, 'replicates', 1);
+    addParameter(p, 'rep_seed_stride', 1000);
+    addParameter(p, 'use_python_salib', false);
+    addParameter(p, 'out_dir', '');
+    parse(p, varargin{:});
+
+    out = sobol_suite(char(p.Results.scenario), p.Results.years, ...
+        p.Results.N, p.Results.seed_base, p.Results.replicates, ...
+        p.Results.rep_seed_stride, p.Results.use_python_salib, ...
+        char(p.Results.out_dir));
+end
+
+function report = action_test(varargin)
+    p = inputParser;
+    addParameter(p, 'years', 3);
+    addParameter(p, 'seed', 42);
+    addParameter(p, 'out_root', 'outputs_matlab');
+    addParameter(p, 'python_outputs_dir', '');
+    addParameter(p, 'run_sobol', false);
+    addParameter(p, 'sobol_N', 128);
+    addParameter(p, 'monte_carlo_n', 120);
+    addParameter(p, 'mc_spread', 0.20);
+    addParameter(p, 'mc_use_python_rng', false);
+
+    addParameter(p, 'headless', true);
+    addParameter(p, 'save_figures', false);
+    addParameter(p, 'save_tables', true);
+    addParameter(p, 'save_reports', true);
+    addParameter(p, 'save_workspace', true);
+    addParameter(p, 'include_python_compare', true);
+
+    parse(p, varargin{:});
+
+    report = test_suite( ...
+        p.Results.years, p.Results.seed, char(p.Results.out_root), ...
+        char(p.Results.python_outputs_dir), p.Results.run_sobol, ...
+        p.Results.sobol_N, p.Results.monte_carlo_n, p.Results.mc_spread, ...
+        p.Results.mc_use_python_rng, ...
+        p.Results.headless, p.Results.save_figures, p.Results.save_tables, ...
+        p.Results.save_reports, p.Results.save_workspace, ...
+        p.Results.include_python_compare);
+end
+
+%% =====================================================================
+%% CORE MODEL
+%% =====================================================================
+function p = default_params()
+    p = struct();
+
+    % kanał dochodowy / energetyczny
+    p.oil_export_cap = 1.00;
+    p.k_san_oil = 0.60;
+    p.k_war_oil = 0.70;
+    p.k_rev = 0.12;
+    p.k_war_spend = 0.10;
+    p.k_subsidy = 0.06;
+    p.k_san_leak = 0.04;
+
+    % skalibrowana inflacja i stres
+    p.pi_base = 0.18;
+    p.pi_target = 0.10;
+    p.k_pi_san = 0.12;
+    p.k_pi_war = 0.18;
+    p.k_pi_fisc = 0.12;
+
+    p.a_inf = 2.0;
+    p.a_fisc = 1.6;
+    p.a_war = 1.1;
+
+    % represja
+    p.r0 = 0.90;
+    p.r_w = 0.30;
+
+    % protest
+    p.k_mob = 0.08;
+    p.k_demob = 0.10;
+    p.b1 = 2.5;
+    p.b2 = 1.2;
+    p.b3 = 1.0;
+    p.b4 = 0.8;
+    p.b5 = 2.2;
+    p.c1 = 2.0;
+    p.c2 = 1.0;
+    p.c3 = 0.6;
+
+    % morale
+    p.k_rally = 0.06;
+    p.tau_rally = 26.0;
+    p.k_fatigue = 0.05;
+    p.k_price = 0.015;
+    p.k_disp = 0.004;
+    p.k_morale_recover = 0.03;
+
+    % stabilność / informacja
+    p.k_cons = 0.110;
+    p.k_info = 0.030;
+    p.k_loss_p = 0.040;
+    p.k_loss_e = 0.020;
+    p.k_loss_w = 0.015;
+    p.k_rally_s = 0.05;
+    p.k_stab_recover = 0.120;
+
+    % elity
+    p.k_elite_rally = 0.02;
+    p.k_elite_cost = 0.015;
+    p.k_elite_protest = 0.010;
+    p.k_elite_recover = 0.12;
+
+    % aparat
+    p.k_pay = 0.070;
+    p.k_loss_l = 0.04;
+    p.k_split = 0.03;
+    p.k_loyal_recover = 0.02;
+
+    % informacja
+    p.k_info_invest = 0.03;
+    p.k_info_emerg = 0.04;
+    p.k_info_deg_w = 0.03;
+    p.k_info_decay_calm = 0.01;
+
+    % wojsko
+    p.k_troop_up = 0.05;
+    p.k_troop_down = 0.04;
+    p.k_troop_attr = 0.02;
+
+    % humanitarne
+    p.k_disp_w = 0.05;
+    p.k_disp_p = 0.03;
+    p.k_disp_e = 0.01;
+    p.k_return = 0.03;
+
+    % ceny energii
+    p.oil_price_base = 1.00;
+    p.k_price_shock = 0.50;
+end
+
+function thr = default_thresholds()
+    thr = struct();
+    thr.stab_crit = 0.30;
+    thr.elite_crit = 0.35;
+    thr.elite_streak_weeks = 4;
+    thr.eps = 1e-9;
+end
+
+function spec = build_spec_struct(p, thr)
+    spec = struct();
+    spec.model_name = 'matj_4_current_test';
+    spec.repo = 'DonkeyJJLove/SymulacjaKaskadySieciowej';
+    spec.dt = '1_week';
+    spec.horizon_default_weeks = 156;
+    spec.state_vars = {'Stab','Elite','Loyal','Info','Morale','Protest','Fiscal','CPI','Troops','Displaced'};
+    spec.derived_vars = {'Infl','EStress','Repr','War','Sanctions','OilPrice','OilRevIndex'};
+    spec.thresholds = thr;
+    spec.params = p;
+    spec.gsa_param_names = default_gsa_param_names();
+end
+
+function [war, sanctions] = scenario_exog(t_week, scenario)
+    switch scenario
+        case 'szybka_wojna'
+            if t_week < 8
+                war = 1.0;
+            elseif t_week < 12
+                war = 0.5;
+            else
+                war = 0.1;
+            end
+
+            if t_week < 26
+                sanctions = 0.7;
+            else
+                sanctions = 0.5;
+            end
+
+        case 'dlugotrwala_wojna'
+            if t_week < 52
+                war = 0.8;
+            else
+                war = 0.6;
+            end
+            sanctions = 0.85;
+
+        case 'impas'
+            war = 0.5 + 0.15 * sin(2*pi*t_week/26);
+            sanctions = 0.75;
+
+        case 'eskalacja_regionalna'
+            if t_week < 26
+                war = 0.9;
+            else
+                war = 0.7;
+            end
+            sanctions = 0.9;
+
+        otherwise
+            war = 0.0;
+            sanctions = 0.3;
+    end
+
+    war = clip(war, 0.0, 1.0);
+    sanctions = clip(sanctions, 0.0, 1.0);
+end
+
+function state_next = step_model(state, t_week, p, scenario)
+    [war, sanctions] = scenario_exog(t_week, scenario);
+
+    % mnożniki scenariuszowe
+    war_cost_mult = 1.0;
+    repr_mult = 1.0;
+    recovery_mult = 1.0;
+    disp_mult = 1.0;
+
+    switch scenario
+        case 'szybka_wojna'
+            war_cost_mult = 1.10;
+            repr_mult = 0.95;
+            recovery_mult = 1.20;
+            disp_mult = 1.00;
+
+        case 'dlugotrwala_wojna'
+            war_cost_mult = 1.15;
+            repr_mult = 0.98;
+            recovery_mult = 0.95;
+            disp_mult = 1.10;
+
+        case 'impas'
+            war_cost_mult = 1.00;
+            repr_mult = 1.00;
+            recovery_mult = 1.00;
+            disp_mult = 1.00;
+
+        case 'eskalacja_regionalna'
+            war_cost_mult = 1.40;
+            repr_mult = 0.88;
+            recovery_mult = 0.85;
+            disp_mult = 1.35;
+    end
+
+    oil_price = p.oil_price_base * (1.0 + p.k_price_shock * war);
+    revenue = p.oil_export_cap ...
+        * (1.0 - p.k_san_oil * sanctions) ...
+        * (1.0 - p.k_war_oil * war) ...
+        * oil_price;
+    revenue = max(0.0, revenue);
+
+    fiscal = state.Fiscal;
+    inflation = p.pi_base ...
+        + p.k_pi_san * sanctions ...
+        + p.k_pi_war * war ...
+        + p.k_pi_fisc * max(0.0, 0.5 - fiscal);
+    inflation = max(0.0, inflation);
+
+    cpi = state.CPI * (1.0 + inflation / 52.0);
+    estress = sigmoid(p.a_inf * (inflation - p.pi_target) + p.a_fisc * (0.5 - fiscal) + p.a_war * war);
+    calm = (1.0 - war) * (1.0 - state.Protest);
+
+    post_shock_recovery = 0.0;
+    if strcmp(scenario, 'szybka_wojna') && t_week >= 12
+        post_shock_recovery = 0.02;
+    end
+
+    elite = state.Elite;
+    loyal = state.Loyal;
+    info = state.Info;
+    repr_cap = clip(((p.r0 * loyal * elite + p.r_w * war) * info) * repr_mult, 0.0, 1.0);
+
+    morale = state.Morale;
+    displaced = state.Displaced;
+    rally_term = p.k_rally * war * exp(-t_week / p.tau_rally);
+
+    morale_next = clip( ...
+        morale + rally_term ...
+        - p.k_fatigue * (war + estress) ...
+        - p.k_price * inflation ...
+        - p.k_disp * displaced ...
+        + p.k_morale_recover * calm * (1.0 - morale) ...
+        + post_shock_recovery * calm * (1.0 - morale), ...
+        0.0, 1.0);
+
+    inflow = p.k_rev * revenue;
+    outflow = p.k_war_spend * war + p.k_subsidy * (1.0 - morale_next) + p.k_san_leak * sanctions;
+    fiscal_next = clip( ...
+        fiscal + inflow - outflow + 0.01 * calm * (1.0 - fiscal) ...
+        + 0.5 * post_shock_recovery * calm * (1.0 - fiscal), ...
+        0.0, 1.0);
+
+    info_next = clip( ...
+        info + p.k_info_invest * fiscal_next + p.k_info_emerg * (war + state.Protest) ...
+        - p.k_info_deg_w * war - p.k_info_decay_calm * calm * info ...
+        + 0.3 * post_shock_recovery * calm * (1.0 - info), ...
+        0.0, 1.0);
+
+    protest = state.Protest;
+    mobilize = p.k_mob * sigmoid( ...
+        p.b1 * estress + p.b2 * (1.0 - morale_next) + p.b3 * (1.0 - state.Stab) ...
+        + p.b4 * (1.0 - info_next) - p.b5 * repr_cap);
+
+    demobilize = p.k_demob * sigmoid(p.c1 * repr_cap + p.c2 * war + p.c3 * protest) + 0.02 * calm * protest;
+    protest_next = clip(protest + mobilize - demobilize, 0.0, 1.0);
+
+    stab = state.Stab;
+    elite_eq = clip(0.38 + 0.28 * stab, 0.22, 0.82);
+    elite_damage = p.k_elite_cost * (0.75 * estress + 0.45 * war * war_cost_mult) ...
+                 + 1.20 * p.k_elite_protest * protest_next;
+
+    elite_next = clip( ...
+        elite + p.k_elite_rally * war * (1.0 - elite) ...
+        - elite_damage * elite ...
+        + 0.75 * p.k_elite_recover * (elite_eq - elite), ...
+        0.0, 1.0);
+
+    loyal_next = clip( ...
+        loyal + p.k_pay * fiscal_next ...
+        - p.k_loss_l * (war + estress) ...
+        - p.k_split * (1.0 - elite_next) ...
+        + p.k_loyal_recover * calm * (1.0 - loyal), ...
+        0.0, 1.0);
+
+    stab_next = clip( ...
+        stab + p.k_cons * (elite_next * loyal_next * fiscal_next) + p.k_info * info_next ...
+        + 0.015 * morale_next + p.k_rally_s * war * exp(-t_week / p.tau_rally) ...
+        - p.k_loss_p * protest_next ...
+        - p.k_loss_e * estress ...
+        - p.k_loss_w * war * war_cost_mult ...
+        + p.k_stab_recover * recovery_mult * calm * (1.0 - stab), ...
+        0.0, 1.0);
+
+    troops = state.Troops;
+    troops_next = clip( ...
+        troops + p.k_troop_up * war * (1.0 - troops) ...
+        - p.k_troop_down * (1.0 - war) * troops ...
+        - p.k_troop_attr * war * troops, ...
+        0.0, 1.0);
+
+    new_disp = disp_mult * (p.k_disp_w * war + p.k_disp_p * protest_next * repr_cap + p.k_disp_e * estress);
+    returns = p.k_return * (1.0 - war) * (1.0 - protest_next) * state.Displaced;
+    displaced_next = max(0.0, state.Displaced + new_disp - returns);
+
+    state_next = struct( ...
+        'Stab', stab_next, ...
+        'Elite', elite_next, ...
+        'Loyal', loyal_next, ...
+        'Info', info_next, ...
+        'Morale', morale_next, ...
+        'Protest', protest_next, ...
+        'Fiscal', fiscal_next, ...
+        'CPI', cpi, ...
+        'Infl', inflation, ...
+        'EStress', estress, ...
+        'Repr', repr_cap, ...
+        'Troops', troops_next, ...
+        'Displaced', displaced_next, ...
+        'War', war, ...
+        'Sanctions', sanctions, ...
+        'OilPrice', oil_price, ...
+        'OilRevIndex', revenue);
+end
+
+function df = simulate_model(p, scenario, years, seed, init_state)
+    rng(seed, 'twister'); %#ok<NASGU>
+    steps = years * 52;
+
+    if isempty(init_state)
+        state = struct( ...
+            'Stab',0.60,'Elite',0.65,'Loyal',0.75,'Info',0.70,'Morale',0.55, ...
+            'Protest',0.20,'Fiscal',0.45,'CPI',100.0,'Troops',0.20,'Displaced',0.0);
+    else
+        state = init_state;
+    end
+
+    week = (0:steps-1)';
+    year = week / 52.0;
+    vars = {'Stab','Elite','Loyal','Info','Morale','Protest','Fiscal','CPI','Infl','EStress','Repr','Troops','Displaced','War','Sanctions','OilPrice','OilRevIndex'};
+    data = zeros(steps, numel(vars));
+
+    for t = 0:steps-1
+        state = step_model(state, t, p, scenario);
+        for j = 1:numel(vars)
+            data(t+1,j) = state.(vars{j});
+        end
+    end
+
+    df = table(week, year);
+    for j = 1:numel(vars)
+        df.(vars{j}) = data(:,j);
+    end
+end
+
+function met = compute_metrics(df, thr)
+    max_weeks = height(df);
+    idx = find(df.Stab < thr.stab_crit, 1, 'first');
+    if isempty(idx)
+        Tcrit = max_weeks + 1;
+    else
+        Tcrit = idx - 1;
+    end
+
+    streak = 0;
+    fracture = 0.0;
+    t_frac = max_weeks + 1;
+    for i = 1:height(df)
+        value = df.Elite(i);
+        if value < thr.elite_crit
+            streak = streak + 1;
+            if streak >= thr.elite_streak_weeks
+                fracture = 1.0;
+                t_frac = i - thr.elite_streak_weeks;
+                break;
+            end
+        else
+            streak = 0;
+        end
+    end
+
+    met = struct();
+    met.Tcrit = double(Tcrit);
+    met.elite_fracture_prob = double(fracture);
+    met.time_to_elite_fracture = double(t_frac);
+    met.weeks_below_elite_crit = double(sum(df.Elite < thr.elite_crit));
+    met.avg_loyal = mean(df.Loyal);
+    met.peak_protest = max(df.Protest);
+    met.end_displaced_m = df.Displaced(end);
+    met.mean_elite = mean(df.Elite);
+    met.min_elite = min(df.Elite);
+    met.mean_stab = mean(df.Stab);
+    met.min_stab = min(df.Stab);
+end
+
+function ext = compute_extra_metrics(df)
+    peak = -Inf;
+    max_dd = 0.0;
+    for i = 1:height(df)
+        peak = max(peak, df.Stab(i));
         if peak > 0
-            dd = (peak - y(i)) / peak;
+            dd = (peak - df.Stab(i)) / peak;
             max_dd = max(max_dd, dd);
         end
     end
 
-    met.Y_end          = y(end);
-    met.Y_mean         = mean(y);
-    met.Y_min          = min(y);
-    met.F_mean         = mean(sim.F);
-    met.reliefEff_mean = mean(sim.reliefEff);
-    met.R_oil_mean     = mean(sim.R_oil);
-    met.max_drawdown_Y = max_dd;
-    met.volatility_Y   = std(dy);
-    met.recovery_ratio = y(end) / max(y(1), eps);
-    met.weeks_below_0_4 = sum(y(2:end) < 0.4);
-    met.clip_rate_Y    = sim.Y_clip_count / sim.T;
-    met.finite_ok      = all(isfinite([sim.Y; sim.P; sim.M; sim.oilInfra; sim.oilExport; sim.R_oil; sim.F; sim.reliefEff]));
-    met.bounds_ok      = all(sim.Y >= 0 & sim.Y <= 1) ...
-                      && all(sim.P >= 0 & sim.P <= 1) ...
-                      && all(sim.M >= 0 & sim.M <= 1) ...
-                      && all(sim.oilInfra >= 0 & sim.oilInfra <= 1);
-    met.mean_X         = mean(exo.X);
-    met.mean_San       = mean(exo.San);
-    met.mean_H         = mean(exo.H);
-    met.mean_O         = mean(exo.O);
-    met.mean_Rf        = mean(exo.Rf);
-end
+    ext = struct();
+    ext.final_stab = df.Stab(end);
+    ext.final_elite = df.Elite(end);
+    ext.final_fiscal = df.Fiscal(end);
+    ext.final_cpi = df.CPI(end);
+    ext.max_drawdown_stab = max_dd;
+    ext.stress_area = mean(df.EStress);
 
-function out = test_finite_and_bounds(results)
-    pass_count = 0;
-    n = numel(results);
-    for i = 1:n
-        ok = results(i).met.finite_ok && results(i).met.bounds_ok;
-        pass_count = pass_count + double(ok);
+    key_vars = {'Stab','Elite','Loyal','Info','Morale','Protest','Fiscal','Troops'};
+    sat_hi = struct();
+    sat_lo = struct();
+    for i = 1:numel(key_vars)
+        v = df.(key_vars{i});
+        sat_hi.(key_vars{i}) = mean(v > 0.995);
+        sat_lo.(key_vars{i}) = mean(v < 0.005);
     end
-    score = 100 * pass_count / n;
-    out.name = 'finite_and_bounds';
-    out.score = score;
-    out.max_score = 100;
-    out.pass = score == 100;
+    ext.sat_hi = sat_hi;
+    ext.sat_lo = sat_lo;
+
+    ext.bounds_ok = all(df.Stab >= 0 & df.Stab <= 1) ...
+        && all(df.Elite >= 0 & df.Elite <= 1) ...
+        && all(df.Loyal >= 0 & df.Loyal <= 1) ...
+        && all(df.Info >= 0 & df.Info <= 1) ...
+        && all(df.Morale >= 0 & df.Morale <= 1) ...
+        && all(df.Protest >= 0 & df.Protest <= 1) ...
+        && all(df.Fiscal >= 0 & df.Fiscal <= 1) ...
+        && all(df.Troops >= 0 & df.Troops <= 1) ...
+        && all(df.Displaced >= 0) ...
+        && all(df.CPI > 0) ...
+        && all(df.Infl >= 0);
+
+    ext.finite_ok = all(isfinite(table2array(df(:,3:end))), 'all');
 end
 
-function out = test_scenario_ranking(results)
+%% =====================================================================
+%% MONTE CARLO
+%% =====================================================================
+function mc = monte_carlo_model(base_params, scenario, years, n, seed, spread, use_python_rng)
+    param_names = fieldnames(base_params);
+    metric_names = {'Tcrit','elite_fracture_prob','peak_protest','min_stab','mean_stab','end_displaced_m'};
+    raw = zeros(n, numel(metric_names));
+
+    if use_python_rng
+        U = maybe_python_uniform(n, numel(param_names), seed);
+    else
+        rng(seed, 'twister');
+        U = rand(n, numel(param_names));
+    end
+
+    for i = 1:n
+        p = base_params;
+        for k = 1:numel(param_names)
+            key = param_names{k};
+            value = base_params.(key);
+            lo = value * (1 - spread);
+            hi = value * (1 + spread);
+            if contains(key, 'target')
+                lo = max(lo, 0.0);
+            end
+            p.(key) = lo + (hi - lo) * U(i,k);
+        end
+
+        df = simulate_model(p, scenario, years, seed + i, []);
+        met = compute_metrics(df, default_thresholds());
+
+        raw(i,1) = met.Tcrit;
+        raw(i,2) = met.elite_fracture_prob;
+        raw(i,3) = met.peak_protest;
+        raw(i,4) = met.min_stab;
+        raw(i,5) = met.mean_stab;
+        raw(i,6) = met.end_displaced_m;
+    end
+
+    mc = array2table(raw, 'VariableNames', metric_names);
+end
+
+%% =====================================================================
+%% GSA / PARAM DISTRIBUTIONS
+%% =====================================================================
+function names = default_gsa_param_names()
+    names = {'k_rev','k_pi_san','k_loss_p','k_loss_e','k_pay','k_split','k_info_invest','k_info_emerg','k_stab_recover','k_price_shock'};
+end
+
+function specs = default_gsa_param_specs()
+    specs = struct();
+    specs.k_rev = struct('dist','beta','a',2,'b',6,'lo',0.05,'hi',0.20);
+    specs.k_pi_san = struct('dist','beta','a',2,'b',5,'lo',0.10,'hi',0.40);
+    specs.k_loss_p = struct('dist','beta','a',2,'b',4,'lo',0.02,'hi',0.12);
+    specs.k_loss_e = struct('dist','beta','a',2,'b',5,'lo',0.01,'hi',0.08);
+    specs.k_pay = struct('dist','beta','a',2,'b',5,'lo',0.02,'hi',0.09);
+    specs.k_split = struct('dist','beta','a',2,'b',5,'lo',0.01,'hi',0.06);
+    specs.k_info_invest = struct('dist','beta','a',2,'b',5,'lo',0.01,'hi',0.06);
+    specs.k_info_emerg = struct('dist','beta','a',2,'b',5,'lo',0.01,'hi',0.08);
+    specs.k_stab_recover = struct('dist','beta','a',3,'b',3,'lo',0.02,'hi',0.15);
+    specs.k_price_shock = struct('dist','truncnorm','mu',0.50,'sigma',0.18,'lo',0.10,'hi',1.20);
+end
+
+function tbl = transform_unit_samples_to_params(U, specs)
+    if ~ismatrix(U)
+        error('U musi być macierzą NxD.');
+    end
+
+    names = fieldnames(specs);
+    D = numel(names);
+    if size(U,2) ~= D
+        error('Liczba kolumn U (%d) musi równać się liczbie parametrów (%d).', size(U,2), D);
+    end
+
+    X = zeros(size(U));
+    for j = 1:D
+        s = specs.(names{j});
+        u = min(max(U(:,j), eps), 1-eps);
+
+        switch lower(s.dist)
+            case 'beta'
+                z = betainv(u, s.a, s.b);
+                X(:,j) = s.lo + (s.hi - s.lo) * z;
+
+            case 'truncnorm'
+                a = (s.lo - s.mu) / s.sigma;
+                b = (s.hi - s.mu) / s.sigma;
+                Fa = normcdf_local(a);
+                Fb = normcdf_local(b);
+                z = Fa + u .* (Fb - Fa);
+                X(:,j) = s.mu + s.sigma .* norminv_local(z);
+
+            otherwise
+                error('Nieobsługiwany rozkład: %s', s.dist);
+        end
+    end
+
+    tbl = array2table(X, 'VariableNames', names);
+end
+
+function agg = aggregate_replicates(X)
+    if isempty(X)
+        agg = struct('mean', [], 'std', [], 'min', [], 'max', []);
+        return;
+    end
+
+    if istable(X)
+        A = table2array(X);
+        names = X.Properties.VariableNames;
+    else
+        A = X;
+        names = compose("x%d", 1:size(A,2));
+    end
+
+    agg = struct();
+    agg.mean = array2table(mean(A,1,'omitnan'), 'VariableNames', cellstr(names));
+    agg.std  = array2table(std(A,0,1,'omitnan'), 'VariableNames', cellstr(names));
+    agg.min  = array2table(min(A,[],1), 'VariableNames', cellstr(names));
+    agg.max  = array2table(max(A,[],1), 'VariableNames', cellstr(names));
+end
+
+function out = sobol_suite(scenario, years, N, seed_base, replicates, rep_seed_stride, use_python_salib, out_dir)
+    if nargin < 7, use_python_salib = false; end
+    if nargin < 8 || isempty(out_dir)
+        out_dir = fullfile('outputs_matlab', ['sobol_' datestr(now,'yyyymmdd_HHMMSSFFF')]);
+    end
+    ensure_dir_local(out_dir);
+
+    specs = default_gsa_param_specs();
+    names = fieldnames(specs);
+    D = numel(names);
+
+    if use_python_salib
+        U = maybe_python_sobol(N, D, seed_base);
+        source = 'python_salib_or_fallback';
+    else
+        U = matlab_sobol_unit_samples(N, D, seed_base);
+        source = 'matlab_sobolset';
+    end
+
+    param_tbl = transform_unit_samples_to_params(U, specs);
+
+    rows = [];
+    for i = 1:height(param_tbl)
+        rep_metrics = zeros(replicates, 6);
+        for r = 1:replicates
+            p = default_params();
+            for j = 1:numel(names)
+                p.(names{j}) = param_tbl{i,j};
+            end
+            seed = seed_base + (i-1) * rep_seed_stride + (r-1);
+            df = simulate_model(p, scenario, years, seed, []);
+            met = compute_metrics(df, default_thresholds());
+            rep_metrics(r,:) = [met.Tcrit, met.elite_fracture_prob, met.peak_protest, met.min_stab, met.mean_stab, met.end_displaced_m];
+        end
+        agg = aggregate_replicates(rep_metrics);
+        row = [table(i, 'VariableNames', {'sample_id'}), ...
+               param_tbl(i,:), ...
+               prefix_table_vars(agg.mean, 'mean_'), ...
+               prefix_table_vars(agg.std,  'std_')];
+        rows = [rows; row]; %#ok<AGROW>
+    end
+
+    writetable(rows, fullfile(out_dir, 'sobol_model_outputs.csv'));
+    out = struct();
+    out.out_dir = out_dir;
+    out.source = source;
+    out.samples = param_tbl;
+    out.outputs = rows;
+end
+
+%% =====================================================================
+%% TEST SUITE
+%% =====================================================================
+function report = test_suite(years, seed, out_root, python_outputs_dir, run_sobol, sobol_N, monte_carlo_n, mc_spread, mc_use_python_rng, headless, save_figures, save_tables, save_reports, save_workspace, include_python_compare)
+    if nargin < 3 || isempty(out_root)
+        out_root = 'outputs_matlab';
+    end
+    ensure_dir_local(out_root);
+    ts = datestr(now, 'yyyymmdd_HHMMSSFFF');
+    out_dir = fullfile(out_root, ts);
+    ensure_dir_local(out_dir);
+
+    p = default_params();
+    thr = default_thresholds();
+    spec = build_spec_struct(p, thr);
+
+    scenarios = {'szybka_wojna','dlugotrwala_wojna','impas','eskalacja_regionalna'};
+    results = struct([]);
+
+    for i = 1:numel(scenarios)
+        df = simulate_model(p, scenarios{i}, years, seed, []);
+        met = compute_metrics(df, thr);
+        ext = compute_extra_metrics(df);
+        results(i).name = scenarios{i};
+        results(i).df = df;
+        results(i).metrics = met;
+        results(i).extra = ext;
+
+        if save_tables
+            writetable(df, fullfile(out_dir, sprintf('matlab_run_%s.csv', scenarios{i})));
+        end
+    end
+
+    test = struct();
+
+    finite_bounds_ok = true;
+    for i = 1:numel(results)
+        finite_bounds_ok = finite_bounds_ok && results(i).extra.finite_ok && results(i).extra.bounds_ok;
+    end
+    test.finite_bounds = make_test('finite_bounds', 100 * double(finite_bounds_ok), 100, finite_bounds_ok);
+
+    d1 = simulate_model(p, 'impas', years, seed, []);
+    d2 = simulate_model(p, 'impas', years, seed, []);
+    same = isequaln(d1, d2);
+    test.determinism = make_test('determinism', 100 * double(same), 100, same);
+
+    test.monotonicity_sanctions = test_monotonicity_sanctions(p);
+    test.local_stability = test_local_stability(p, years, seed);
+    test.realism = test_realism(results);
+    test.no_global_collapse = test_no_global_collapse(results);
+    test.stress_dynamic_range = test_stress_dynamic_range(results);
+    test.scenario_order = test_scenario_order(results);
+
+    mc = monte_carlo_model(p, 'impas', years, monte_carlo_n, seed + 111, mc_spread, mc_use_python_rng);
+    if save_tables
+        writetable(mc, fullfile(out_dir, 'matlab_monte_carlo.csv'));
+    end
+    if save_figures
+        save_mc_fig(mc, out_dir, headless);
+    end
+
+    collapse_rate = mean(mc.min_stab < 0.05);
+    mc_score = max(0, 100 * (1 - collapse_rate));
+    test.monte_carlo = make_test('monte_carlo', mc_score, 100, mc_score >= 60);
+
+    compare = [];
+    if include_python_compare && ~isempty(python_outputs_dir) && isfolder(python_outputs_dir)
+        compare = compare_with_python(results, python_outputs_dir, out_dir, save_tables);
+        if ~isempty(compare)
+            max_abs = max(compare.abs_diff, [], 'omitnan');
+            sc = 100 * double(max_abs < 1e-8) + 80 * double(max_abs < 1e-6 & max_abs >= 1e-8) ...
+               + 60 * double(max_abs < 1e-4 & max_abs >= 1e-6) + 0 * double(max_abs >= 1e-4);
+            test.python_compare = make_test('python_compare', sc, 100, sc >= 60);
+        else
+            test.python_compare = make_skipped_test('python_compare', ...
+                'Brak wspólnych plików lub kolumn do porównania.');
+        end
+    else
+        test.python_compare = make_skipped_test('python_compare', ...
+            'Nie podano python_outputs_dir albo wyłączono include_python_compare.');
+    end
+
+    sobol_info = [];
+    if run_sobol
+        sobol_info = sobol_suite('impas', years, sobol_N, seed + 777, 1, 1000, false, fullfile(out_dir, 'sobol'));
+    end
+
+    [quality_score, qtbl] = aggregate_quality(test);
+
+    if save_reports
+        write_spec_yaml(spec, fullfile(out_dir, 'SPEC.yaml'));
+        write_run_manifest(out_dir, years, seed, scenarios, quality_score, mc_use_python_rng, save_figures, save_tables, save_reports, save_workspace, headless);
+        write_report_txt(out_dir, results, test, quality_score);
+    end
+    if save_figures
+        save_scenario_fig(results, out_dir, headless);
+    end
+
+    report = struct();
+    report.out_dir = out_dir;
+    report.results = results;
+    report.tests = test;
+    report.quality_score = quality_score;
+    report.quality_label = quality_label(quality_score);
+    report.quality_table = qtbl;
+    report.monte_carlo = mc;
+    report.python_compare_long = compare;
+    report.sobol = sobol_info;
+    report.options = struct( ...
+        'headless',headless, ...
+        'save_figures',save_figures, ...
+        'save_tables',save_tables, ...
+        'save_reports',save_reports, ...
+        'save_workspace',save_workspace);
+
+    if save_workspace
+        save(fullfile(out_dir, 'matj_4_current_test_workspace.mat'), 'report');
+    end
+
+    fprintf('=============================================================\n');
+    fprintf('MATJ_4_CURRENT_TEST SUITE\n');
+    fprintf('=============================================================\n');
+    fprintf('out_dir        : %s\n', out_dir);
+    fprintf('quality_score  : %.2f / 100\n', quality_score);
+    fprintf('quality_label  : %s\n', report.quality_label);
+    fprintf('save_figures   : %d\n', save_figures);
+    fprintf('save_tables    : %d\n', save_tables);
+    fprintf('save_reports   : %d\n', save_reports);
+    fprintf('save_workspace : %d\n', save_workspace);
+end
+
+function out = make_test(name, score, max_score, pass)
+    out = struct('name',name,'score',score,'max_score',max_score,'pass',pass,'skipped',false,'reason','');
+end
+
+function out = make_skipped_test(name, reason)
+    out = struct('name',name,'score',0,'max_score',0,'pass',true,'skipped',true,'reason',reason);
+end
+
+function out = test_monotonicity_sanctions(p)
+    s = struct('Stab',0.60,'Elite',0.65,'Loyal',0.75,'Info',0.70,'Morale',0.55,'Protest',0.20,'Fiscal',0.45,'CPI',100.0,'Troops',0.20,'Displaced',0.0);
+    exo_low = struct('War',0.6,'Sanctions',0.2);
+    exo_hi  = struct('War',0.6,'Sanctions',0.9);
+
+    a = step_with_fixed_exog(s, exo_low, p, 0);
+    b = step_with_fixed_exog(s, exo_hi,  p, 0);
+
+    ok1 = b.OilRevIndex <= a.OilRevIndex + 1e-12;
+    ok2 = b.Infl >= a.Infl - 1e-12;
+    score = 100 * mean([ok1 ok2]);
+    out = make_test('monotonicity_sanctions', score, 100, score == 100);
+end
+
+function state_next = step_with_fixed_exog(state, exo, p, t_week)
+    war = clip(exo.War, 0.0, 1.0);
+    sanctions = clip(exo.Sanctions, 0.0, 1.0);
+
+    oil_price = p.oil_price_base * (1.0 + p.k_price_shock * war);
+    revenue = p.oil_export_cap * (1.0 - p.k_san_oil * sanctions) * (1.0 - p.k_war_oil * war) * oil_price;
+    revenue = max(0.0, revenue);
+
+    fiscal = state.Fiscal;
+    inflation = p.pi_base + p.k_pi_san * sanctions + p.k_pi_war * war + p.k_pi_fisc * max(0.0, 0.5 - fiscal);
+    inflation = max(0.0, inflation);
+    cpi = state.CPI * (1.0 + inflation / 52.0);
+
+    estress = sigmoid(p.a_inf * (inflation - p.pi_target) + p.a_fisc * (0.5 - fiscal) + p.a_war * war);
+    calm = (1.0 - war) * (1.0 - state.Protest);
+    repr_cap = clip((p.r0 * state.Loyal * state.Elite + p.r_w * war) * state.Info, 0.0, 1.0);
+
+    morale_next = clip(state.Morale + p.k_rally * war * exp(-t_week / p.tau_rally) - p.k_fatigue * (war + estress) ...
+        - p.k_price * inflation - p.k_disp * state.Displaced + p.k_morale_recover * calm * (1.0 - state.Morale), 0.0, 1.0);
+    fiscal_next = clip(fiscal + p.k_rev * revenue - p.k_war_spend * war - p.k_subsidy * (1.0 - morale_next) ...
+        - p.k_san_leak * sanctions + 0.01 * calm * (1.0 - fiscal), 0.0, 1.0);
+    info_next = clip(state.Info + p.k_info_invest * fiscal_next + p.k_info_emerg * (war + state.Protest) ...
+        - p.k_info_deg_w * war - p.k_info_decay_calm * calm * state.Info, 0.0, 1.0);
+
+    mobilize = p.k_mob * sigmoid(p.b1 * estress + p.b2 * (1.0 - morale_next) + p.b3 * (1.0 - state.Stab) ...
+        + p.b4 * (1.0 - info_next) - p.b5 * repr_cap);
+    demobilize = p.k_demob * sigmoid(p.c1 * repr_cap + p.c2 * war + p.c3 * state.Protest) + 0.02 * calm * state.Protest;
+    protest_next = clip(state.Protest + mobilize - demobilize, 0.0, 1.0);
+
+    elite_eq = clip(0.38 + 0.28 * state.Stab, 0.22, 0.82);
+    elite_damage = p.k_elite_cost * (0.75 * estress + 0.45 * war) + 1.20 * p.k_elite_protest * protest_next;
+    elite_next = clip(state.Elite + p.k_elite_rally * war * (1.0 - state.Elite) - elite_damage * state.Elite ...
+        + 0.75 * p.k_elite_recover * (elite_eq - state.Elite), 0.0, 1.0);
+
+    loyal_next = clip(state.Loyal + p.k_pay * fiscal_next - p.k_loss_l * (war + estress) - p.k_split * (1.0 - elite_next) ...
+        + p.k_loyal_recover * calm * (1.0 - state.Loyal), 0.0, 1.0);
+
+    stab_next = clip(state.Stab + p.k_cons * (elite_next * loyal_next * fiscal_next) + p.k_info * info_next + 0.015 * morale_next ...
+        + p.k_rally_s * war * exp(-t_week / p.tau_rally) - p.k_loss_p * protest_next - p.k_loss_e * estress - p.k_loss_w * war ...
+        + p.k_stab_recover * calm * (1.0 - state.Stab), 0.0, 1.0);
+
+    troops_next = clip(state.Troops + p.k_troop_up * war * (1.0 - state.Troops) - p.k_troop_down * (1.0 - war) * state.Troops ...
+        - p.k_troop_attr * war * state.Troops, 0.0, 1.0);
+
+    new_disp = p.k_disp_w * war + p.k_disp_p * protest_next * repr_cap + p.k_disp_e * estress;
+    returns = p.k_return * (1.0 - war) * (1.0 - protest_next) * state.Displaced;
+    displaced_next = max(0.0, state.Displaced + new_disp - returns);
+
+    state_next = struct('Stab',stab_next,'Elite',elite_next,'Loyal',loyal_next,'Info',info_next,'Morale',morale_next, ...
+        'Protest',protest_next,'Fiscal',fiscal_next,'CPI',cpi,'Infl',inflation,'EStress',estress,'Repr',repr_cap, ...
+        'Troops',troops_next,'Displaced',displaced_next,'War',war,'Sanctions',sanctions,'OilPrice',oil_price,'OilRevIndex',revenue);
+end
+
+function out = test_local_stability(p, years, seed)
+    s1 = struct('Stab',0.60,'Elite',0.65,'Loyal',0.75,'Info',0.70,'Morale',0.55,'Protest',0.20,'Fiscal',0.45,'CPI',100.0,'Troops',0.20,'Displaced',0.0);
+    s2 = s1;
+    s2.Stab = s2.Stab + 0.005;
+    s2.Elite = s2.Elite - 0.005;
+    s2.Loyal = s2.Loyal + 0.005;
+    s2.Fiscal = s2.Fiscal - 0.005;
+
+    d1 = simulate_model(p, 'impas', years, seed, s1);
+    d2 = simulate_model(p, 'impas', years, seed, s2);
+
+    dist = abs(d1.Stab - d2.Stab) + abs(d1.Elite - d2.Elite) + abs(d1.Loyal - d2.Loyal);
+    ratio = dist(end) / max(dist(1), 1e-9);
+    score = max(0, min(100, 100 * (1 - min(ratio, 1.0))));
+    out = make_test('local_stability', score, 100, score >= 60);
+end
+
+function out = test_realism(results)
+    penalty = 0.0;
+    total = 0.0;
+    fields = {'Stab','Elite','Loyal','Info','Morale','Protest'};
+    for i = 1:numel(results)
+        total = total + numel(fields);
+        ext = results(i).extra;
+        for j = 1:numel(fields)
+            if ext.sat_hi.(fields{j}) > 0.85 || ext.sat_lo.(fields{j}) > 0.85
+                penalty = penalty + 1.0;
+            end
+        end
+    end
+    score = max(0, 100 * (1 - penalty / max(total,1)));
+    out = make_test('realism', score, 100, score >= 50);
+end
+
+function out = test_no_global_collapse(results)
+    all_collapse = all(arrayfun(@(x) x.extra.final_stab < 0.05, results));
+    out = make_test('no_global_collapse', 100 * double(~all_collapse), 100, ~all_collapse);
+end
+
+function out = test_stress_dynamic_range(results)
+    all_stress_saturated = all(arrayfun(@(x) x.extra.stress_area > 0.95, results));
+    out = make_test('stress_dynamic_range', 100 * double(~all_stress_saturated), 100, ~all_stress_saturated);
+end
+
+function out = test_scenario_order(results)
     names = {results.name};
-    idxBase   = find(strcmp(names, 'baseline'), 1);
-    idxStress = find(strcmp(names, 'stress'), 1);
-    idxRelief = find(strcmp(names, 'relief'), 1);
-    idxShock  = find(strcmp(names, 'shock'), 1);
+    idx_fast = find(strcmp(names,'szybka_wojna'),1);
+    idx_long = find(strcmp(names,'dlugotrwala_wojna'),1);
+    idx_stale = find(strcmp(names,'impas'),1);
+    idx_esc = find(strcmp(names,'eskalacja_regionalna'),1);
 
     checks = [];
 
-    if ~isempty(idxBase) && ~isempty(idxStress)
-        checks(end+1) = results(idxBase).met.Y_end > results(idxStress).met.Y_end; %#ok<AGROW>
+    if ~isempty(idx_esc) && ~isempty(idx_long)
+        checks(end+1) = results(idx_esc).metrics.end_displaced_m >= results(idx_long).metrics.end_displaced_m; %#ok<AGROW>
     end
-    if ~isempty(idxRelief) && ~isempty(idxStress)
-        checks(end+1) = results(idxRelief).met.Y_end > results(idxStress).met.Y_end; %#ok<AGROW>
+    if ~isempty(idx_esc) && ~isempty(idx_stale)
+        checks(end+1) = results(idx_esc).metrics.mean_stab <= results(idx_stale).metrics.mean_stab; %#ok<AGROW>
     end
-    if ~isempty(idxShock) && ~isempty(idxBase)
-        checks(end+1) = results(idxShock).met.max_drawdown_Y > results(idxBase).met.max_drawdown_Y; %#ok<AGROW>
+    if ~isempty(idx_fast) && ~isempty(idx_long)
+        checks(end+1) = results(idx_fast).metrics.peak_protest >= results(idx_long).metrics.peak_protest; %#ok<AGROW>
+    end
+    if ~isempty(idx_fast) && ~isempty(idx_stale)
+        checks(end+1) = results(idx_fast).metrics.Tcrit <= results(idx_stale).metrics.Tcrit; %#ok<AGROW>
     end
 
     if isempty(checks)
@@ -387,264 +1091,317 @@ function out = test_scenario_ranking(results)
         score = 100 * mean(checks);
     end
 
-    out.name = 'scenario_ranking';
-    out.score = score;
-    out.max_score = 100;
-    out.pass = score >= 66.67;
+    out = make_test('scenario_order', score, 100, score >= 75);
 end
 
-function out = test_sanction_monotonicity(p)
-    T = 30;
-    init.Y0 = 0.70;
-    init.P0 = 0.22;
-    init.M0 = 0.18;
-    init.oilInfra0 = 0.90;
-
-    gridSan = linspace(0,1,9);
-    Yend = zeros(size(gridSan));
-
-    for i = 1:numel(gridSan)
-        exo.X   = 0.25 * ones(T,1);
-        exo.San = gridSan(i) * ones(T,1);
-        exo.H   = 0.12 * ones(T,1);
-        exo.O   = 1.05 * ones(T,1);
-        exo.Rf  = 0.25 * ones(T,1);
-        sim = simulate_model(T, p, exo, init);
-        Yend(i) = sim.Y(end);
-    end
-
-    diffs = diff(Yend);
-    monotonic_ok_ratio = mean(diffs <= 1e-10);
-    score = 100 * monotonic_ok_ratio;
-
-    out.name = 'sanction_monotonicity';
-    out.score = score;
-    out.max_score = 100;
-    out.pass = score >= 87.5;
-end
-
-function out = test_relief_monotonicity(p)
-    T = 30;
-    init.Y0 = 0.70;
-    init.P0 = 0.22;
-    init.M0 = 0.18;
-    init.oilInfra0 = 0.90;
-
-    gridRf = linspace(0,1,9);
-    Yend = zeros(size(gridRf));
-
-    for i = 1:numel(gridRf)
-        exo.X   = 0.25 * ones(T,1);
-        exo.San = 0.45 * ones(T,1);
-        exo.H   = 0.18 * ones(T,1);
-        exo.O   = 1.05 * ones(T,1);
-        exo.Rf  = gridRf(i) * ones(T,1);
-        sim = simulate_model(T, p, exo, init);
-        Yend(i) = sim.Y(end);
-    end
-
-    diffs = diff(Yend);
-    monotonic_ok_ratio = mean(diffs >= -1e-10);
-    score = 100 * monotonic_ok_ratio;
-
-    out.name = 'relief_monotonicity';
-    out.score = score;
-    out.max_score = 100;
-    out.pass = score >= 87.5;
-end
-
-function out = test_local_stability(p)
-    T = 40;
-    init1.Y0 = 0.7000;
-    init1.P0 = 0.2200;
-    init1.M0 = 0.1800;
-    init1.oilInfra0 = 0.9000;
-
-    init2 = init1;
-    init2.Y0 = init2.Y0 + 0.005;
-    init2.P0 = init2.P0 - 0.005;
-    init2.M0 = init2.M0 + 0.005;
-    init2.oilInfra0 = init2.oilInfra0 - 0.005;
-
-    exo.X   = 0.28 * ones(T,1);
-    exo.San = 0.40 * ones(T,1);
-    exo.H   = 0.12 * ones(T,1);
-    exo.O   = 1.07 * ones(T,1);
-    exo.Rf  = 0.30 * ones(T,1);
-
-    s1 = simulate_model(T, p, exo, init1);
-    s2 = simulate_model(T, p, exo, init2);
-
-    dist = abs(s1.Y - s2.Y);
-    growth_ratio = max(dist(end) / max(dist(1), 1e-9), 0);
-    % im mniejszy wzrost różnicy tym lepiej
-    score = max(0, min(100, 100 * (1 - min(growth_ratio, 1))));
-
-    out.name = 'local_stability';
-    out.score = score;
-    out.max_score = 100;
-    out.pass = score >= 60;
-end
-
-function out = test_monte_carlo(p)
-    N = 200;
-    T = 52;
-    init.Y0 = 0.72;
-    init.P0 = 0.25;
-    init.M0 = 0.20;
-    init.oilInfra0 = 0.88;
-
-    Y_end = zeros(N,1);
-    finite_ok = zeros(N,1);
-    bounds_ok = zeros(N,1);
-
-    for i = 1:N
-        exo.X   = min(max(0.25 + 0.15*randn(T,1), 0), 1);
-        exo.San = min(max(0.40 + 0.18*randn(T,1), 0), 1);
-        exo.H   = min(max(0.18 + 0.16*randn(T,1), 0), 1);
-        exo.O   = max(0.60, 1.05 + 0.20*randn(T,1));   % indeks cenowy > 0
-        exo.Rf  = min(max(0.25 + 0.20*randn(T,1), 0), 1);
-
-        sim = simulate_model(T, p, exo, init);
-        Y_end(i) = sim.Y(end);
-        finite_ok(i) = all(isfinite(sim.Y));
-        bounds_ok(i) = all(sim.Y >= 0 & sim.Y <= 1);
-    end
-
-    score_finite = 100 * mean(finite_ok);
-    score_bounds = 100 * mean(bounds_ok);
-
-    % penalizacja za zbyt częste zapadanie się systemu do zera
-    collapse_rate = mean(Y_end < 0.05);
-    score_collapse = 100 * (1 - collapse_rate);
-
-    score = 0.4 * score_finite + 0.3 * score_bounds + 0.3 * score_collapse;
-
-    out.name = 'monte_carlo_robustness';
-    out.score = score;
-    out.max_score = 100;
-    out.pass = score >= 70;
-    out.collapse_rate = collapse_rate;
-    out.Y_end_mean = mean(Y_end);
-    out.Y_end_std = std(Y_end);
-end
-
-function [quality_score, tbl] = aggregate_quality(q)
+function [score, tbl] = aggregate_quality(q)
     names = fieldnames(q);
-    tbl = cell(numel(names),4);
     total = 0;
     total_max = 0;
+    tbl = cell(numel(names), 4);
 
     for i = 1:numel(names)
         item = q.(names{i});
+        if isfield(item, 'skipped') && item.skipped
+            status = 'SKIP';
+        else
+            status = ternary(item.pass, 'PASS', 'FAIL');
+        end
+        if item.max_score > 0
+            total = total + item.score;
+            total_max = total_max + item.max_score;
+        end
         tbl{i,1} = item.name;
         tbl{i,2} = item.score;
         tbl{i,3} = item.max_score;
-        if item.pass
-            tbl{i,4} = 'PASS';
-        else
-            tbl{i,4} = 'FAIL';
+        tbl{i,4} = status;
+    end
+
+    score = 100 * total / max(total_max, eps);
+end
+
+function s = quality_label(score)
+    if score >= 85
+        s = 'BARDZO DOBRY';
+    elseif score >= 70
+        s = 'DOBRY';
+    elseif score >= 55
+        s = 'WARUNKOWO POPRAWNY';
+    else
+        s = 'WYMAGA REKALIBRACJI';
+    end
+end
+
+%% =====================================================================
+%% COMPARE MATLAB <-> PYTHON
+%% =====================================================================
+function long_tbl = compare_with_python(results, python_outputs_dir, out_dir, save_tables)
+    long_tbl = table();
+    for i = 1:numel(results)
+        scenario = results(i).name;
+        py_path = fullfile(python_outputs_dir, sprintf('run_%s.csv', scenario));
+        if ~isfile(py_path)
+            py_path = fullfile(python_outputs_dir, sprintf('matlab_run_%s.csv', scenario));
         end
-        total = total + item.score;
-        total_max = total_max + item.max_score;
-    end
+        if ~isfile(py_path)
+            continue;
+        end
 
-    quality_score = 100 * total / max(total_max, eps);
+        py = readtable(py_path);
+        ma = results(i).df;
+        common = intersect(py.Properties.VariableNames, ma.Properties.VariableNames, 'stable');
+        common = setdiff(common, {'year'});
+        if isempty(common)
+            continue;
+        end
+
+        rows = [];
+        for j = 1:numel(common)
+            v = common{j};
+            if ~isnumeric(py.(v)) || ~isnumeric(ma.(v))
+                continue;
+            end
+            n = min(height(py), height(ma));
+            variable = repmat(string(v), n, 1);
+            week = ma.week(1:n);
+            python_v = py.(v)(1:n);
+            matlab_v = ma.(v)(1:n);
+            diff_v = matlab_v - python_v;
+            abs_diff = abs(diff_v);
+            rows = [rows; table(variable, week, python_v, matlab_v, diff_v, abs_diff, ...
+                'VariableNames', {'variable','week','python','matlab','diff','abs_diff'})]; %#ok<AGROW>
+        end
+
+        if ~isempty(rows)
+            if save_tables
+                writetable(rows, fullfile(out_dir, sprintf('compare_%s_long.csv', scenario)));
+            end
+            long_tbl = [long_tbl; rows]; %#ok<AGROW>
+        end
+    end
 end
 
-function comp = comparative_stats(results)
-    n = numel(results);
-    Y_end = zeros(n,1);
-    DD = zeros(n,1);
-    VOL = zeros(n,1);
-    REL = zeros(n,1);
-    OIL = zeros(n,1);
+%% =====================================================================
+%% ARTEFACTS / REPORTS
+%% =====================================================================
+function save_scenario_fig(results, out_dir, headless)
+    vis = ternary(~headless, 'on', 'off');
+    f = figure('Visible',vis,'Color','w','Name','matj_4_current_test_scenarios');
+    tiledlayout(3,2);
 
-    for i = 1:n
-        Y_end(i) = results(i).met.Y_end;
-        DD(i)    = results(i).met.max_drawdown_Y;
-        VOL(i)   = results(i).met.volatility_Y;
-        REL(i)   = results(i).met.reliefEff_mean;
-        OIL(i)   = results(i).met.R_oil_mean;
-    end
+    nexttile; hold on;
+    for i = 1:numel(results), plot(results(i).df.week, results(i).df.Stab, 'LineWidth',1.4, 'DisplayName',results(i).name); end
+    title('Stab'); grid on; legend('Location','best'); hold off;
 
-    [~, ibestY] = max(Y_end);
-    [~, iworstY] = min(Y_end);
-    [~, ibestDD] = min(DD);
-    [~, imaxVOL] = max(VOL);
-    [~, ibestREL] = max(REL);
-    [~, ibestOIL] = max(OIL);
+    nexttile; hold on;
+    for i = 1:numel(results), plot(results(i).df.week, results(i).df.Elite, 'LineWidth',1.4, 'DisplayName',results(i).name); end
+    title('Elite'); grid on; legend('Location','best'); hold off;
 
-    comp.best_by_Y_end = results(ibestY).name;
-    comp.worst_by_Y_end = results(iworstY).name;
-    comp.best_drawdown = results(ibestDD).name;
-    comp.max_volatility = results(imaxVOL).name;
-    comp.best_relief = results(ibestREL).name;
-    comp.best_oil = results(ibestOIL).name;
+    nexttile; hold on;
+    for i = 1:numel(results), plot(results(i).df.week, results(i).df.Protest, 'LineWidth',1.4, 'DisplayName',results(i).name); end
+    title('Protest'); grid on; legend('Location','best'); hold off;
+
+    nexttile; hold on;
+    for i = 1:numel(results), plot(results(i).df.week, results(i).df.Fiscal, 'LineWidth',1.4, 'DisplayName',results(i).name); end
+    title('Fiscal'); grid on; legend('Location','best'); hold off;
+
+    nexttile; hold on;
+    for i = 1:numel(results), plot(results(i).df.week, results(i).df.CPI, 'LineWidth',1.4, 'DisplayName',results(i).name); end
+    title('CPI'); grid on; legend('Location','best'); hold off;
+
+    nexttile; hold on;
+    for i = 1:numel(results), plot(results(i).df.week, results(i).df.Displaced, 'LineWidth',1.4, 'DisplayName',results(i).name); end
+    title('Displaced'); grid on; legend('Location','best'); hold off;
+
+    exportgraphics(f, fullfile(out_dir, 'matj_4_current_test_scenarios.png'), 'Resolution', 150);
+    close(f);
 end
 
-function plot_all(results, t, quality_score, final_label)
-    figure('Name','MATJ_1 :: Trajektorie Y_t','Color','w');
-    hold on;
-    for i = 1:numel(results)
-        plot(t, results(i).sim.Y, 'LineWidth', 1.8, 'DisplayName', results(i).name);
+function save_mc_fig(mc, out_dir, headless)
+    vis = ternary(~headless, 'on', 'off');
+    f = figure('Visible',vis,'Color','w','Name','matj_4_current_test_mc');
+    tiledlayout(2,2);
+
+    nexttile; histogram(mc.Tcrit); title('Tcrit'); grid on;
+    nexttile; histogram(mc.min_stab); title('min_stab'); grid on;
+    nexttile; histogram(mc.peak_protest); title('peak_protest'); grid on;
+    nexttile; histogram(mc.end_displaced_m); title('end_displaced_m'); grid on;
+
+    exportgraphics(f, fullfile(out_dir, 'matj_4_current_test_monte_carlo.png'), 'Resolution', 150);
+    close(f);
+end
+
+function write_spec_yaml(spec, path_out)
+    fid = fopen(path_out, 'w');
+    assert(fid > 0, 'Nie mogę zapisać SPEC.yaml');
+    cleaner = onCleanup(@() fclose(fid)); %#ok<NASGU>
+
+    fprintf(fid, 'model_name: %s\n', spec.model_name);
+    fprintf(fid, 'repo: %s\n', spec.repo);
+    fprintf(fid, 'dt: %s\n', spec.dt);
+    fprintf(fid, 'horizon_default_weeks: %d\n', spec.horizon_default_weeks);
+
+    fprintf(fid, 'state_vars:\n');
+    for i = 1:numel(spec.state_vars)
+        fprintf(fid, '  - %s\n', spec.state_vars{i});
     end
-    xlabel('Tydzień');
-    ylabel('Y_t');
-    title(sprintf('Porównanie scenariuszy :: score = %.2f / 100 [%s]', quality_score, final_label));
-    grid on;
-    legend('Location','best');
-    hold off;
 
-    figure('Name','MATJ_1 :: Kanał naftowy i ulga','Color','w');
-    tiledlayout(2,1);
-
-    nexttile;
-    hold on;
-    for i = 1:numel(results)
-        plot(1:results(i).sim.T, results(i).sim.R_oil, 'LineWidth', 1.6, 'DisplayName', results(i).name);
+    fprintf(fid, 'derived_vars:\n');
+    for i = 1:numel(spec.derived_vars)
+        fprintf(fid, '  - %s\n', spec.derived_vars{i});
     end
-    title('R_{oil,t}');
-    xlabel('Tydzień');
-    ylabel('R_oil');
-    grid on;
-    legend('Location','best');
-    hold off;
 
-    nexttile;
-    hold on;
-    for i = 1:numel(results)
-        plot(1:results(i).sim.T, results(i).sim.reliefEff, 'LineWidth', 1.6, 'DisplayName', results(i).name);
+    fprintf(fid, 'thresholds:\n');
+    fprintf(fid, '  stab_crit: %.6f\n', spec.thresholds.stab_crit);
+    fprintf(fid, '  elite_crit: %.6f\n', spec.thresholds.elite_crit);
+    fprintf(fid, '  elite_streak_weeks: %d\n', spec.thresholds.elite_streak_weeks);
+
+    fprintf(fid, 'params:\n');
+    pnames = fieldnames(spec.params);
+    for i = 1:numel(pnames)
+        fprintf(fid, '  %s: %.12g\n', pnames{i}, spec.params.(pnames{i}));
     end
-    title('reliefEff_t');
-    xlabel('Tydzień');
-    ylabel('reliefEff');
-    grid on;
-    legend('Location','best');
-    hold off;
 
-    figure('Name','MATJ_1 :: Stany pomocnicze','Color','w');
-    tiledlayout(3,1);
-
-    nexttile; hold on;
-    for i = 1:numel(results)
-        plot(t, results(i).sim.P, 'LineWidth', 1.4, 'DisplayName', results(i).name);
+    fprintf(fid, 'gsa_param_names:\n');
+    for i = 1:numel(spec.gsa_param_names)
+        fprintf(fid, '  - %s\n', spec.gsa_param_names{i});
     end
-    title('P_t');
-    grid on; legend('Location','best'); hold off;
+end
 
-    nexttile; hold on;
-    for i = 1:numel(results)
-        plot(t, results(i).sim.M, 'LineWidth', 1.4, 'DisplayName', results(i).name);
-    end
-    title('M_t');
-    grid on; legend('Location','best'); hold off;
+function write_run_manifest(out_dir, years, seed, scenarios, quality_score, mc_use_python_rng, save_figures, save_tables, save_reports, save_workspace, headless)
+    fid = fopen(fullfile(out_dir, 'run_manifest.txt'), 'w');
+    assert(fid > 0, 'Nie mogę zapisać run_manifest.txt');
+    cleaner = onCleanup(@() fclose(fid)); %#ok<NASGU>
 
-    nexttile; hold on;
+    fprintf(fid, 'timestamp=%s\n', datestr(now, 31));
+    fprintf(fid, 'matlab_version=%s\n', version);
+    fprintf(fid, 'years=%d\n', years);
+    fprintf(fid, 'seed=%d\n', seed);
+    fprintf(fid, 'quality_score=%.6f\n', quality_score);
+    fprintf(fid, 'mc_use_python_rng=%d\n', mc_use_python_rng);
+    fprintf(fid, 'save_figures=%d\n', save_figures);
+    fprintf(fid, 'save_tables=%d\n', save_tables);
+    fprintf(fid, 'save_reports=%d\n', save_reports);
+    fprintf(fid, 'save_workspace=%d\n', save_workspace);
+    fprintf(fid, 'headless=%d\n', headless);
+    fprintf(fid, 'out_dir=%s\n', out_dir);
+    fprintf(fid, 'scenarios=%s\n', strjoin(scenarios, ','));
+    fprintf(fid, 'python_available=%d\n', python_available());
+end
+
+function write_report_txt(out_dir, results, tests, quality_score)
+    fid = fopen(fullfile(out_dir, 'report.txt'), 'w');
+    assert(fid > 0, 'Nie mogę zapisać report.txt');
+    cleaner = onCleanup(@() fclose(fid)); %#ok<NASGU>
+
+    fprintf(fid, 'MATJ_4_CURRENT_TEST REPORT\n');
+    fprintf(fid, '==========================\n\n');
+    fprintf(fid, 'quality_score=%.4f\n', quality_score);
+    fprintf(fid, 'quality_label=%s\n\n', quality_label(quality_score));
+
+    fprintf(fid, 'SCENARIOS\n');
+    fprintf(fid, '---------\n');
     for i = 1:numel(results)
-        plot(t, results(i).sim.oilInfra, 'LineWidth', 1.4, 'DisplayName', results(i).name);
+        m = results(i).metrics;
+        e = results(i).extra;
+        fprintf(fid, '[%s]\n', results(i).name);
+        fprintf(fid, '  Tcrit=%.4f\n', m.Tcrit);
+        fprintf(fid, '  elite_fracture_prob=%.4f\n', m.elite_fracture_prob);
+        fprintf(fid, '  peak_protest=%.4f\n', m.peak_protest);
+        fprintf(fid, '  min_stab=%.4f\n', m.min_stab);
+        fprintf(fid, '  mean_stab=%.4f\n', m.mean_stab);
+        fprintf(fid, '  final_stab=%.4f\n', e.final_stab);
+        fprintf(fid, '  stress_area=%.4f\n', e.stress_area);
+        fprintf(fid, '  drawdown=%.4f\n\n', e.max_drawdown_stab);
     end
-    title('oilInfra_t');
-    xlabel('Tydzień');
-    grid on; legend('Location','best'); hold off;
+
+    fprintf(fid, 'TESTS\n');
+    fprintf(fid, '-----\n');
+    names = fieldnames(tests);
+    for i = 1:numel(names)
+        x = tests.(names{i});
+        status = ternary(x.pass, 'PASS', 'FAIL');
+        if isfield(x, 'skipped') && x.skipped
+            status = 'SKIP';
+        end
+        fprintf(fid, '%s: %.4f / %.4f [%s]', x.name, x.score, x.max_score, status);
+        if isfield(x, 'skipped') && x.skipped && ~isempty(x.reason)
+            fprintf(fid, ' :: %s', x.reason);
+        end
+        fprintf(fid, '\n');
+    end
+end
+
+%% =====================================================================
+%% UTILITIES
+%% =====================================================================
+function y = clip(x, lo, hi)
+    y = max(lo, min(hi, x));
+end
+
+function y = sigmoid(x)
+    x = max(-60.0, min(60.0, x));
+    y = 1.0 ./ (1.0 + exp(-x));
+end
+
+function p = normcdf_local(x)
+    p = 0.5 * (1 + erf(x ./ sqrt(2)));
+end
+
+function x = norminv_local(p)
+    p = min(max(p, eps), 1-eps);
+    x = sqrt(2) * erfinv(2*p - 1);
+end
+
+function out = ternary(cond, a, b)
+    if cond
+        out = a;
+    else
+        out = b;
+    end
+end
+
+function ensure_dir_local(pth)
+    if ~isfolder(pth)
+        mkdir(pth);
+    end
+end
+
+function tf = python_available()
+    try
+        pe = pyenv;
+        tf = ~strcmpi(pe.Status, "NotLoaded") || strlength(string(pe.Version)) > 0;
+    catch
+        tf = false;
+    end
+end
+
+function U = maybe_python_uniform(n, d, seed)
+    %#ok<INUSD>
+    rng(seed, 'twister');
+    U = rand(n, d);
+end
+
+function U = matlab_sobol_unit_samples(N, D, seed)
+    try
+        s = sobolset(D);
+        s = scramble(s, 'MatousekAffineOwen');
+        rng(seed, 'twister');
+        U = net(s, N);
+    catch
+        rng(seed, 'twister');
+        U = rand(N, D);
+    end
+    U = min(max(U, eps), 1-eps);
+end
+
+function U = maybe_python_sobol(N, D, seed)
+    %#ok<INUSD>
+    U = matlab_sobol_unit_samples(N, D, seed);
+end
+
+function tbl2 = prefix_table_vars(tbl, prefix)
+    tbl2 = tbl;
+    names = tbl.Properties.VariableNames;
+    tbl2.Properties.VariableNames = strcat(prefix, names);
 end
