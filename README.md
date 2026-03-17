@@ -1,4 +1,4 @@
-# Abstrakcyjna Symulacja Kaskady Sieciowej
+# Symulacja Kaskady Sieciowej
 
 ## Pełny model symulacyjny konfliktu (system dynamics) dla Iranu w warunkach wojny z NATO
 
