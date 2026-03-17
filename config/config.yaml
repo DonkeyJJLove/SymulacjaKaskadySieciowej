@@ -1,0 +1,35 @@
+scenario: szybka_wojna
+years: 3
+
+mc:
+  enabled: true
+  n: 500
+  spread: 0.20
+
+random:
+  seed_base: 12345
+  rep_seed_stride: 100000
+
+thresholds:
+  stab_crit: 0.30
+  elite_crit: 0.35
+  elite_streak_weeks: 4
+
+gsa:
+  n_reps: 5
+  morris:
+    num_levels: 8
+    trajectories: 30
+    optimal_trajectories: 10
+    local_optimization: true
+  sobol:
+    N: 1024
+    calc_second_order: false
+    num_resamples: 1000
+    conf_level: 0.95
+
+runtime:
+  n_jobs: -1
+
+paths:
+  outputs_dir: outputs
