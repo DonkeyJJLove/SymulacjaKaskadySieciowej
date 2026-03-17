@@ -34,9 +34,6 @@ function out = matj_4_current_test(action, varargin)
 %   r.quality_table
 %   type(fullfile(r.out_dir,'report.txt'))
 
-
-
-
     if nargin == 0 || isempty(action)
         action = 'test';
     end
