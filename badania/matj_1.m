@@ -1,5 +1,5 @@
-function out = matj_4(action, varargin)
-% MATJ_4_CURRENT_TEST
+function out = mati_1(action, varargin)
+% MATI_1
 % Aktualny kompletny test modelu MATLAB dla repozytorium
 % SymulacjaKaskadySieciowej.
 %
@@ -13,23 +13,23 @@ function out = matj_4(action, varargin)
 % - opcjonalny eksport tabel, raportów, workspace i figur
 %
 % Użycie:
-%   r  = matj_4_current_test('test');
-%   r2 = matj_4_current_test('test', ...
+%   r  = mati_1('test');
+%   r2 = mati_1('test', ...
 %           'save_figures', false, 'save_tables', true, ...
 %           'save_reports', true, 'save_workspace', true, ...
 %           'headless', true);
-%   df = matj_4_current_test('simulate','scenario','impas','years',3,'seed',12345);
-%   m  = matj_4_current_test('compute_metrics', df, 3, ...
+%   df = mati_1('simulate','scenario','impas','years',3,'seed',12345);
+%   m  = mati_1('compute_metrics', df, 3, ...
 %           'stab_crit',0.30,'elite_crit',0.35,'elite_streak_weeks',4);
-%   mc = matj_4_current_test('monte_carlo','scenario','impas','years',3,'n',100,'spread',0.20,'seed',42);
-%   sp = matj_4_current_test('spec');
+%   mc = mati_1('monte_carlo','scenario','impas','years',3,'n',100,'spread',0.20,'seed',42);
+%   sp = mati_1('spec');
 %
-%   r = matj_4_current_test('test', ...
-%    'save_figures', false, ...
-%    'save_tables', true, ...
-%    'save_reports', true, ...
-%    'save_workspace', true, ...
-%    'headless', true);
+%   r = mati_1('test', ...
+%       'save_figures', false, ...
+%       'save_tables', true, ...
+%       'save_reports', true, ...
+%       'save_workspace', true, ...
+%       'headless', true);
 %
 %   r.quality_table
 %   type(fullfile(r.out_dir,'report.txt'))
@@ -57,7 +57,7 @@ function out = matj_4(action, varargin)
 
         case "compute_extra_metrics"
             if nargin < 2
-                error('matj_4_current_test:compute_extra_metrics', 'Podaj tabelę symulacji.');
+                error('mati_1:compute_extra_metrics', 'Podaj tabelę symulacji.');
             end
             out = compute_extra_metrics(varargin{1});
 
@@ -77,7 +77,7 @@ function out = matj_4(action, varargin)
             out = action_test(varargin{:});
 
         otherwise
-            error('matj_4_current_test:unknownAction', 'Nieznana akcja: %s', action);
+            error('mati_1:unknownAction', 'Nieznana akcja: %s', action);
     end
 end
 
@@ -99,7 +99,7 @@ end
 
 function met = action_compute_metrics(varargin)
     if nargin < 1
-        error('matj_4_current_test:compute_metrics', ...
+        error('mati_1:compute_metrics', ...
             'Podaj tabelę symulacji jako pierwszy argument.');
     end
 
@@ -143,7 +143,7 @@ end
 
 function out = action_transform_unit_samples(varargin)
     if nargin < 1
-        error('matj_4_current_test:transform', 'Podaj macierz U z [0,1].');
+        error('mati_1:transform', 'Podaj macierz U z [0,1].');
     end
     U = varargin{1};
     specs = default_gsa_param_specs();
@@ -155,7 +155,7 @@ end
 
 function out = action_aggregate_replicates(varargin)
     if nargin < 1
-        error('matj_4_current_test:aggregate_replicates', 'Podaj tablicę wyników replik.');
+        error('mati_1:aggregate_replicates', 'Podaj tablicę wyników replik.');
     end
     out = aggregate_replicates(varargin{1});
 end
@@ -312,7 +312,7 @@ end
 
 function spec = build_spec_struct(p, thr)
     spec = struct();
-    spec.model_name = 'matj_4_current_test';
+    spec.model_name = 'mati_1';
     spec.repo = 'DonkeyJJLove/SymulacjaKaskadySieciowej';
     spec.dt = '1_week';
     spec.horizon_default_weeks = 156;
@@ -926,11 +926,11 @@ function report = test_suite(years, seed, out_root, python_outputs_dir, run_sobo
         'save_workspace',save_workspace);
 
     if save_workspace
-        save(fullfile(out_dir, 'matj_4_current_test_workspace.mat'), 'report');
+        save(fullfile(out_dir, 'mati_1_workspace.mat'), 'report');
     end
 
     fprintf('=============================================================\n');
-    fprintf('MATJ_4_CURRENT_TEST SUITE\n');
+    fprintf('MATI_1 SUITE\n');
     fprintf('=============================================================\n');
     fprintf('out_dir        : %s\n', out_dir);
     fprintf('quality_score  : %.2f / 100\n', quality_score);
@@ -1183,7 +1183,7 @@ end
 %% =====================================================================
 function save_scenario_fig(results, out_dir, headless)
     vis = ternary(~headless, 'on', 'off');
-    f = figure('Visible',vis,'Color','w','Name','matj_4_current_test_scenarios');
+    f = figure('Visible',vis,'Color','w','Name','mati_1_scenarios');
     tiledlayout(3,2);
 
     nexttile; hold on;
@@ -1210,13 +1210,13 @@ function save_scenario_fig(results, out_dir, headless)
     for i = 1:numel(results), plot(results(i).df.week, results(i).df.Displaced, 'LineWidth',1.4, 'DisplayName',results(i).name); end
     title('Displaced'); grid on; legend('Location','best'); hold off;
 
-    exportgraphics(f, fullfile(out_dir, 'matj_4_current_test_scenarios.png'), 'Resolution', 150);
+    exportgraphics(f, fullfile(out_dir, 'mati_1_scenarios.png'), 'Resolution', 150);
     close(f);
 end
 
 function save_mc_fig(mc, out_dir, headless)
     vis = ternary(~headless, 'on', 'off');
-    f = figure('Visible',vis,'Color','w','Name','matj_4_current_test_mc');
+    f = figure('Visible',vis,'Color','w','Name','mati_1_mc');
     tiledlayout(2,2);
 
     nexttile; histogram(mc.Tcrit); title('Tcrit'); grid on;
@@ -1224,7 +1224,7 @@ function save_mc_fig(mc, out_dir, headless)
     nexttile; histogram(mc.peak_protest); title('peak_protest'); grid on;
     nexttile; histogram(mc.end_displaced_m); title('end_displaced_m'); grid on;
 
-    exportgraphics(f, fullfile(out_dir, 'matj_4_current_test_monte_carlo.png'), 'Resolution', 150);
+    exportgraphics(f, fullfile(out_dir, 'mati_1_monte_carlo.png'), 'Resolution', 150);
     close(f);
 end
 
@@ -1291,8 +1291,8 @@ function write_report_txt(out_dir, results, tests, quality_score)
     assert(fid > 0, 'Nie mogę zapisać report.txt');
     cleaner = onCleanup(@() fclose(fid)); %#ok<NASGU>
 
-    fprintf(fid, 'MATJ_4_CURRENT_TEST REPORT\n');
-    fprintf(fid, '==========================\n\n');
+    fprintf(fid, 'MATI_1 REPORT\n');
+    fprintf(fid, '=============\n\n');
     fprintf(fid, 'quality_score=%.4f\n', quality_score);
     fprintf(fid, 'quality_label=%s\n\n', quality_label(quality_score));
 
