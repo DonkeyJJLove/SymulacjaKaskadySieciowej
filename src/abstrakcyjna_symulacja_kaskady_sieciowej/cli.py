@@ -399,7 +399,6 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-
     # bifurcation nie wymaga config.yaml
     if args.command == "bifurcation":
         return run_bifurcation(args.data)
