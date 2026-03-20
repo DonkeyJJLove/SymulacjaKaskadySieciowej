@@ -1,0 +1,60 @@
+MAIJ_1 REPORT
+=============
+
+quality_score=88.9394
+quality_label=BARDZO DOBRY
+
+SCENARIOS
+---------
+[szybka_wojna]
+  Tcrit=91.0000
+  elite_fracture_prob=1.0000
+  peak_protest=1.0000
+  min_stab=0.0000
+  mean_stab=0.4840
+  final_stab=0.0000
+  stress_area=0.8015
+  drawdown=1.0000
+
+[dlugotrwala_wojna]
+  Tcrit=157.0000
+  elite_fracture_prob=0.0000
+  peak_protest=0.2090
+  min_stab=0.6556
+  mean_stab=0.9530
+  final_stab=0.8612
+  stress_area=0.9033
+  drawdown=0.1388
+
+[impas]
+  Tcrit=157.0000
+  elite_fracture_prob=0.0000
+  peak_protest=0.4386
+  min_stab=0.6632
+  mean_stab=0.8784
+  final_stab=0.7319
+  stress_area=0.8761
+  drawdown=0.2888
+
+[eskalacja_regionalna]
+  Tcrit=157.0000
+  elite_fracture_prob=0.0000
+  peak_protest=0.1860
+  min_stab=0.6499
+  mean_stab=0.8917
+  final_stab=0.7432
+  stress_area=0.9129
+  drawdown=0.2568
+
+TESTS
+-----
+finite_bounds: 100.0000 / 100.0000 [PASS]
+determinism: 100.0000 / 100.0000 [PASS]
+monotonicity_sanctions: 100.0000 / 100.0000 [PASS]
+local_stability: 99.6215 / 100.0000 [PASS]
+realism: 62.5000 / 100.0000 [PASS]
+no_global_collapse: 100.0000 / 100.0000 [PASS]
+stress_dynamic_range: 100.0000 / 100.0000 [PASS]
+scenario_order: 75.0000 / 100.0000 [PASS]
+monte_carlo: 63.3333 / 100.0000 [PASS]
+python_compare: 0.0000 / 0.0000 [SKIP] :: Nie podano python_outputs_dir albo wyłączono include_python_compare.
