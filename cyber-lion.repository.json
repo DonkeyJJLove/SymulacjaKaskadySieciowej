@@ -1,0 +1,45 @@
+{
+  "schema_version": "1.0.0",
+  "repository": {
+    "id": "DonkeyJJLove/SymulacjaKaskadySieciowej",
+    "url": "https://github.com/DonkeyJJLove/SymulacjaKaskadySieciowej",
+    "owner": "DonkeyJJLove",
+    "default_branch": "main",
+    "vcs_ref": null
+  },
+  "cyber_lion": {
+    "tile_id": "falsification.simulation",
+    "roles": ["SimulationProvider", "FalsificationEngine", "StressScenarioProvider", "SensitivityAnalyzer"],
+    "layers": ["SEM"],
+    "disposition": ["KEEP", "REFINE", "GENERALIZE", "INTEGRATE"]
+  },
+  "capabilities": [
+    "simulation.run",
+    "scenario.generate",
+    "stress.adversarial",
+    "sensitivity.morris",
+    "sensitivity.sobol",
+    "model.reproduce"
+  ],
+  "authority": {
+    "maximum_level": "read",
+    "required_gates": ["cyber-lion.mand"]
+  },
+  "observability": {
+    "logs": ["simulation.run", "scenario.parameters", "seed.record", "model.version"],
+    "metrics": ["run.count", "convergence.error", "tail.loss", "sensitivity.index"],
+    "traces": ["assumptions→parameters→model→scenario→simulation→interpretation"]
+  },
+  "security": {
+    "trust_boundaries": [
+      "simulated != observed",
+      "convergence != model correctness",
+      "sensitivity index != empirical causal coefficient",
+      "simulation recommendation != runtime authority"
+    ]
+  },
+  "epistemic": {
+    "status": "FORMALISED",
+    "confidence": 0.84
+  }
+}
