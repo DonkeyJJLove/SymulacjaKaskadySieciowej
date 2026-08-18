@@ -1,6 +1,32 @@
-/.idea/
-/.venv/
-/backup/
-
+# Local environments / IDE
+.venv/
+venv/
 .idea/
+.vscode/
+
+# Python generated state
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# Local secrets / config overrides
+.env
+.env.*
+!.env.sample
+
+# Scratch / backups
 backup/
+.tmp/
+tmp/
+
+# Generated logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
