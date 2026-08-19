@@ -33,15 +33,28 @@ def descriptor() -> ModelDescriptor:
     ).validate()
 
 
-def request(parameters=None) -> SimulationRequest:
+def request(parameters=None, *, seed=None) -> SimulationRequest:
     return SimulationRequest.from_parameters(
         descriptor=descriptor(),
         scenario_id="impas",
         configuration_id="default-v1",
         configuration_digest=CONFIG_DIGEST,
         parameters=parameters or {"years": 1, "threshold": 0.25},
-        seed=SeedProvenance("fixed-single", (12345,)),
+        seed=seed or SeedProvenance("fixed-single", (12345,)),
     )
+
+
+def derived_seed(**changes) -> SeedProvenance:
+    values = {
+        "strategy": "derived-sequence",
+        "seeds": (7, 11, 13),
+        "root_seed": 7,
+        "derivation_algorithm": "splitmix64",
+        "derivation_version": "1",
+        "derivation_parameters_json": '{"count":3}',
+    }
+    values.update(changes)
+    return SeedProvenance(**values)
 
 
 class SimulationContractTests(unittest.TestCase):
@@ -64,16 +77,36 @@ class SimulationContractTests(unittest.TestCase):
     def test_seed_strategy_is_explicit_and_bounded(self):
         SeedProvenance("fixed-single", (12345,)).validate()
         SeedProvenance("explicit-set", (1, 2, 3)).validate()
-        SeedProvenance("derived-sequence", (7,)).validate()
+        derived_seed().validate()
         for invalid in (
             SeedProvenance("unknown", (1,)),
             SeedProvenance("fixed-single", (1, 2)),
             SeedProvenance("explicit-set", ()),
             SeedProvenance("fixed-single", (-1,)),
             SeedProvenance("fixed-single", (True,)),
+            SeedProvenance("derived-sequence", (7, 11, 13)),
+            SeedProvenance("fixed-single", (1,), root_seed=1),
+            derived_seed(derivation_parameters_json='{"b":2, "a":1}'),
         ):
             with self.assertRaises(SimulationContractError):
                 invalid.validate()
+
+    def test_derived_seed_provenance_binds_materialized_sequence_and_derivation(self):
+        seed = derived_seed().validate()
+        payload = seed.canonical_dict()
+        self.assertEqual(payload["seeds"], [7, 11, 13])
+        self.assertEqual(
+            payload["derivation"],
+            {
+                "root_seed": 7,
+                "algorithm": "splitmix64",
+                "version": "1",
+                "parameters": {"count": 3},
+            },
+        )
+        first = request(seed=seed)
+        second = request(seed=derived_seed(derivation_algorithm="pcg64").validate())
+        self.assertNotEqual(first.provenance_digest(), second.provenance_digest())
 
     def test_scenario_configuration_and_seed_provenance_are_reconstructable(self):
         item = request()
@@ -109,8 +142,9 @@ class SimulationContractTests(unittest.TestCase):
         derived = SimulationResult(request(), (OUTPUT_DIGEST,), EpistemicClass.DERIVED).validate()
         self.assertNotEqual(simulated.epistemic_class.value, "OBSERVED")
         self.assertNotEqual(derived.epistemic_class.value, "OBSERVED")
-        with self.assertRaises(SimulationContractError):
-            SimulationResult(request(), (OUTPUT_DIGEST,), "OBSERVED").validate()  # type: ignore[arg-type]
+        for malformed in ("OBSERVED", "SIMULATED", "DERIVED"):
+            with self.subTest(malformed=malformed), self.assertRaises(SimulationContractError):
+                SimulationResult(request(), (OUTPUT_DIGEST,), malformed).validate()  # type: ignore[arg-type]
 
     def test_result_preserves_exact_model_config_seed_and_output_provenance(self):
         result = SimulationResult(request(), (OUTPUT_DIGEST,), EpistemicClass.SIMULATED).validate()
