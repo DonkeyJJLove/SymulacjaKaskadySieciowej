@@ -12,6 +12,7 @@ from .model_interface import default_params_dict, run_model
 from .simulation_contracts import (
     EpistemicClass,
     ModelDescriptor,
+    ModelRiskStatement,
     SimulationContractError,
     SimulationRequest,
     SimulationResult,
@@ -172,3 +173,19 @@ class IranCascadeSimulationProvider:
             output_hashes=tuple(output_hashes),
             epistemic_class=EpistemicClass.SIMULATED,
         ).validate()
+
+    def model_risk_statement(self, result: SimulationResult) -> ModelRiskStatement:
+        """Disclose model risk for a result owned by this exact provider/configuration."""
+        result.validate()
+        self._validate_request(result.request)
+        descriptor = self.descriptor()
+        return ModelRiskStatement(
+            result_digest=result.result_digest(),
+            assumptions=descriptor.assumptions,
+            limitations=descriptor.limitations,
+            known_failure_modes=(
+                "real-world drivers or feedback paths may be absent from the domain equations",
+                "parameter combinations may represent regimes outside the model's research domain of validity",
+                "equal outputs across seeds do not establish low uncertainty because current equations do not consume RNG state",
+            ),
+        ).validate_against(result)

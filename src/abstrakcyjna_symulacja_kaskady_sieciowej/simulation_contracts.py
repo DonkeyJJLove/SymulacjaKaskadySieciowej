@@ -295,6 +295,8 @@ class SimulationProvider(Protocol):
 
     def run(self, request: SimulationRequest) -> SimulationResult: ...
 
+    def model_risk_statement(self, result: SimulationResult) -> ModelRiskStatement: ...
+
 
 def contract_field_names(contract_type: type[Any]) -> set[str]:
     """Expose contract shape for invariant tests without implementation coupling."""
