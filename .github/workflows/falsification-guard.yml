@@ -71,3 +71,6 @@ jobs:
               raise SystemExit("fixed-seed deterministic smoke is not reproducible")
           print("deterministic smoke reproduced 52 weekly states")
           PY
+
+      - name: Simulation provider conformance
+        run: python -m unittest discover -s tests -p 'test_*.py' -v

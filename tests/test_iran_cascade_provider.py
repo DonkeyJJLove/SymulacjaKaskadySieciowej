@@ -199,13 +199,14 @@ class IranCascadeProviderTests(unittest.TestCase):
         self.assertIs(result.epistemic_class, EpistemicClass.SIMULATED)
         self.assertNotEqual(result.epistemic_class.value, "OBSERVED")
 
-    def test_domain_execution_failure_does_not_return_success_result(self):
+    def test_domain_execution_failure_does_not_return_success_result_or_issue_digest(self):
         with patch(
             "abstrakcyjna_symulacja_kaskady_sieciowej.iran_cascade_provider.run_model",
             side_effect=RuntimeError("domain execution failed"),
         ):
             with self.assertRaisesRegex(RuntimeError, "domain execution failed"):
                 self.provider.run(make_request(self.provider))
+        self.assertEqual(self.provider._issued_result_digests, set())
 
     def test_execution_config_rejects_ambiguous_or_invalid_values(self):
         invalid = (
@@ -219,8 +220,12 @@ class IranCascadeProviderTests(unittest.TestCase):
             with self.subTest(config=config), self.assertRaises(SimulationContractError):
                 config.validate()
 
-    def test_adapter_exposes_no_runtime_authority_state_or_analysis_engines(self):
-        self.assertEqual(set(self.provider.__dict__), {"_execution_config"})
+    def test_adapter_exposes_only_execution_and_process_local_issuance_state(self):
+        self.assertEqual(
+            set(self.provider.__dict__),
+            {"_execution_config", "_issued_result_digests"},
+        )
+        self.assertEqual(self.provider._issued_result_digests, set())
         module_name = "abstrakcyjna_symulacja_kaskady_sieciowej.iran_cascade_provider"
         module = __import__(module_name, fromlist=["*"])
         for name in ("monte_carlo", "morris", "sobol", "authority", "capability", "permission"):

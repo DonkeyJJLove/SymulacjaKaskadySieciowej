@@ -12,6 +12,7 @@ from .model_interface import default_params_dict, run_model
 from .simulation_contracts import (
     EpistemicClass,
     ModelDescriptor,
+    ModelRiskStatement,
     SimulationContractError,
     SimulationRequest,
     SimulationResult,
@@ -118,6 +119,7 @@ class IranCascadeSimulationProvider:
 
     def __init__(self, execution_config: DomainExecutionConfig = DEFAULT_EXECUTION_CONFIG) -> None:
         self._execution_config = execution_config.validate()
+        self._issued_result_digests: set[str] = set()
 
     def descriptor(self) -> ModelDescriptor:
         return ModelDescriptor(
@@ -167,8 +169,31 @@ class IranCascadeSimulationProvider:
                 elite_streak_weeks=self._execution_config.elite_streak_weeks,
             )
             output_hashes.append(metrics_digest(metrics))
-        return SimulationResult(
+        result = SimulationResult(
             request=request,
             output_hashes=tuple(output_hashes),
             epistemic_class=EpistemicClass.SIMULATED,
         ).validate()
+        self._issued_result_digests.add(result.result_digest())
+        return result
+
+    def model_risk_statement(self, result: SimulationResult) -> ModelRiskStatement:
+        """Disclose model risk for a result issued by this provider instance."""
+        result.validate()
+        self._validate_request(result.request)
+        if result.epistemic_class is not EpistemicClass.SIMULATED:
+            raise SimulationContractError("Iran cascade provider only issues SIMULATED results")
+        result_digest = result.result_digest()
+        if result_digest not in self._issued_result_digests:
+            raise SimulationContractError("result was not issued by this provider instance")
+        descriptor = self.descriptor()
+        return ModelRiskStatement(
+            result_digest=result_digest,
+            assumptions=descriptor.assumptions,
+            limitations=descriptor.limitations,
+            known_failure_modes=(
+                "real-world drivers or feedback paths may be absent from the domain equations",
+                "parameter combinations may represent regimes outside the model's research domain of validity",
+                "equal outputs across seeds do not establish low uncertainty because current equations do not consume RNG state",
+            ),
+        ).validate_against(result)
