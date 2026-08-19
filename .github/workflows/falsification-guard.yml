@@ -1,0 +1,73 @@
+name: Simulation Falsification Guard
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  falsification-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Reject tracked local/generated state
+        shell: bash
+        run: |
+          BAD=$(git ls-files | grep -E '(^|/)(\.venv|venv|\.idea|\.vscode|__pycache__|\.pytest_cache|\.mypy_cache|\.ruff_cache|build|dist)(/|$)|\.egg-info(/|$)|(^|/)\.env($|\.)|\.py[co]$|(^|/)(\.DS_Store|Thumbs\.db)$' | grep -v -E '(^|/)\.env\.sample$' || true)
+          if [ -n "$BAD" ]; then
+            echo "Tracked local/generated state violates source-purity invariant:"
+            echo "$BAD"
+            exit 1
+          fi
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install package
+        run: |
+          python -m pip install -U pip
+          python -m pip install -e .
+
+      - name: Validate repository manifest
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          json.loads(Path("cyber-lion.repository.json").read_text(encoding="utf-8"))
+          print("repository manifest parsed")
+          PY
+
+      - name: Compile Python source
+        run: python -m compileall -q main.py src scripts
+
+      - name: CLI import smoke
+        run: python main.py --help >/dev/null
+
+      - name: Deterministic scenario smoke
+        run: |
+          python - <<'PY'
+          from abstrakcyjna_symulacja_kaskady_sieciowej.model import Params, simulate
+
+          first = simulate(Params(), scenario="impas", years=1, seed=12345)
+          second = simulate(Params(), scenario="impas", years=1, seed=12345)
+          if len(first) != 52:
+              raise SystemExit(f"expected 52 weekly states, got {len(first)}")
+          if first.empty or first.isna().any().any():
+              raise SystemExit("deterministic smoke produced empty/NaN state")
+          if not first.equals(second):
+              raise SystemExit("fixed-seed deterministic smoke is not reproducible")
+          print("deterministic smoke reproduced 52 weekly states")
+          PY
