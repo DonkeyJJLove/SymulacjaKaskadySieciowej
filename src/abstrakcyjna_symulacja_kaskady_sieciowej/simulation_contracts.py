@@ -73,6 +73,18 @@ def canonical_json_object(value: Mapping[str, Any]) -> str:
     return json.dumps(copied, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
+def _canonical_object_json(name: str, value: Any) -> str:
+    if not isinstance(value, str):
+        raise SimulationContractError(f"{name} must be canonical object JSON")
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise SimulationContractError(f"{name} must be canonical object JSON") from exc
+    if not isinstance(parsed, dict) or canonical_json_object(parsed) != value:
+        raise SimulationContractError(f"{name} must be canonical object JSON")
+    return value
+
+
 def _digest(payload: Mapping[str, Any]) -> str:
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
@@ -116,23 +128,61 @@ class ModelDescriptor:
 
 @dataclass(frozen=True)
 class SeedProvenance:
+    """Exact execution seeds plus derivation metadata when a sequence was derived.
+
+    `seeds` always stores the fully materialized seed sequence actually consumed by
+    the provider. `derived-sequence` additionally records how that exact sequence
+    was derived so provenance is reconstructable rather than provider-defined.
+    """
+
     strategy: str
     seeds: tuple[int, ...]
+    root_seed: int | None = None
+    derivation_algorithm: str | None = None
+    derivation_version: str | None = None
+    derivation_parameters_json: str | None = None
 
     def validate(self) -> "SeedProvenance":
         if self.strategy not in _SEED_STRATEGIES:
             raise SimulationContractError("seed strategy is not explicit/recognized")
         if not isinstance(self.seeds, tuple) or not self.seeds:
-            raise SimulationContractError("at least one seed is required")
+            raise SimulationContractError("at least one execution seed is required")
         if any(isinstance(seed, bool) or not isinstance(seed, int) or seed < 0 for seed in self.seeds):
-            raise SimulationContractError("seeds must be non-negative integers")
-        if self.strategy == "fixed-single" and len(self.seeds) != 1:
-            raise SimulationContractError("fixed-single requires exactly one seed")
+            raise SimulationContractError("execution seeds must be non-negative integers")
+
+        derivation_fields = (
+            self.root_seed,
+            self.derivation_algorithm,
+            self.derivation_version,
+            self.derivation_parameters_json,
+        )
+        if self.strategy == "fixed-single":
+            if len(self.seeds) != 1:
+                raise SimulationContractError("fixed-single requires exactly one seed")
+            if any(value is not None for value in derivation_fields):
+                raise SimulationContractError("fixed-single cannot carry derivation metadata")
+        elif self.strategy == "explicit-set":
+            if any(value is not None for value in derivation_fields):
+                raise SimulationContractError("explicit-set cannot carry derivation metadata")
+        else:
+            if isinstance(self.root_seed, bool) or not isinstance(self.root_seed, int) or self.root_seed < 0:
+                raise SimulationContractError("derived-sequence requires a non-negative root_seed")
+            _text("derivation_algorithm", self.derivation_algorithm)
+            _text("derivation_version", self.derivation_version)
+            _canonical_object_json("derivation_parameters_json", self.derivation_parameters_json)
         return self
 
     def canonical_dict(self) -> dict[str, Any]:
         self.validate()
-        return {"strategy": self.strategy, "seeds": list(self.seeds)}
+        payload: dict[str, Any] = {"strategy": self.strategy, "seeds": list(self.seeds)}
+        if self.strategy == "derived-sequence":
+            payload["derivation"] = {
+                "root_seed": self.root_seed,
+                "algorithm": self.derivation_algorithm,
+                "version": self.derivation_version,
+                "parameters": json.loads(self.derivation_parameters_json or "{}"),
+            }
+        return payload
 
 
 @dataclass(frozen=True)
@@ -206,6 +256,8 @@ class SimulationResult:
             raise SimulationContractError("at least one output hash is required")
         if any(not isinstance(value, str) or not _SHA256_RE.fullmatch(value) for value in self.output_hashes):
             raise SimulationContractError("output hashes must be lowercase sha256")
+        if not isinstance(self.epistemic_class, EpistemicClass):
+            raise SimulationContractError("epistemic_class must be an EpistemicClass value")
         if self.epistemic_class not in (EpistemicClass.SIMULATED, EpistemicClass.DERIVED):
             raise SimulationContractError("simulation results may only be SIMULATED or DERIVED")
         return self
