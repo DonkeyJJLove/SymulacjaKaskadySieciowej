@@ -9,9 +9,21 @@
   },
   "cyber_lion": {
     "tile_id": "falsification.simulation",
-    "roles": ["SimulationProvider", "FalsificationEngine", "StressScenarioProvider", "SensitivityAnalyzer"],
-    "layers": ["SEM"],
-    "disposition": ["KEEP", "REFINE", "GENERALIZE", "INTEGRATE"]
+    "roles": [
+      "SimulationProvider",
+      "FalsificationEngine",
+      "StressScenarioProvider",
+      "SensitivityAnalyzer"
+    ],
+    "layers": [
+      "SEM"
+    ],
+    "disposition": [
+      "KEEP",
+      "REFINE",
+      "GENERALIZE",
+      "INTEGRATE"
+    ]
   },
   "capabilities": [
     "simulation.run",
@@ -23,12 +35,26 @@
   ],
   "authority": {
     "maximum_level": "read",
-    "required_gates": ["cyber-lion.mand"]
+    "required_gates": [
+      "cyber-lion.mand"
+    ]
   },
   "observability": {
-    "logs": ["simulation.run", "scenario.parameters", "seed.record", "model.version"],
-    "metrics": ["run.count", "convergence.error", "tail.loss", "sensitivity.index"],
-    "traces": ["assumptions→parameters→model→scenario→simulation→interpretation"]
+    "logs": [
+      "simulation.run",
+      "scenario.parameters",
+      "seed.record",
+      "model.version"
+    ],
+    "metrics": [
+      "run.count",
+      "convergence.error",
+      "tail.loss",
+      "sensitivity.index"
+    ],
+    "traces": [
+      "assumptions→parameters→model→scenario→simulation→interpretation"
+    ]
   },
   "security": {
     "trust_boundaries": [
@@ -41,5 +67,62 @@
   "epistemic": {
     "status": "FORMALISED",
     "confidence": 0.84
+  },
+  "architecture_knowledge": {
+    "schema_version": "1.0.0",
+    "global_owner": "DonkeyJJLove/ai_platform",
+    "semantic_exports": [
+      "simulation",
+      "falsification",
+      "sensitivity_analysis"
+    ],
+    "semantic_imports": [
+      "architecture",
+      "formalization",
+      "currentness"
+    ],
+    "repository_dependencies": [
+      "DonkeyJJLove/ai_platform"
+    ],
+    "architecture_artifacts": [
+      {
+        "path": "AGENTS.md",
+        "class": "HUMAN_ARCHITECTURE_DOCUMENT",
+        "currentness": "LOCAL_OWNER"
+      },
+      {
+        "path": "AI_NATIVE_ROADMAP.md",
+        "class": "ROADMAP",
+        "currentness": "LOCAL_OWNER"
+      },
+      {
+        "path": "PROCESS_GUARD.md",
+        "class": "PROCESS_GUARD",
+        "currentness": "LOCAL_OWNER"
+      },
+      {
+        "path": "README.md",
+        "class": "RESEARCH_ARCHITECTURE",
+        "currentness": "LOCAL_OWNER"
+      },
+      {
+        "path": "src/abstrakcyjna_symulacja_kaskady_sieciowej/simulation_contracts.py",
+        "class": "CONTRACT",
+        "currentness": "SOURCE_BOUND"
+      }
+    ],
+    "discoverability": {
+      "entrypoint": "AGENTS.md",
+      "global_owner_route": "AGENTS.md -> cyber-lion.repository.json -> DonkeyJJLove/ai_platform:LION/architecture/v1_5/README.md",
+      "max_reads_to_global_owner": 3
+    },
+    "invalidation_triggers": [
+      "SOURCE_CHANGE",
+      "CONTRACT_CHANGE",
+      "CAPABILITY_CHANGE",
+      "CURRENTNESS_CHANGE",
+      "REPOSITORY_ROLE_CHANGE",
+      "DEPENDENCY_CHANGE"
+    ]
   }
 }
