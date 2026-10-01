@@ -1,0 +1,19 @@
+{
+  "schema": "lion.repository-standardization/v1",
+  "repository": "DonkeyJJLove/SymulacjaKaskadySieciowej",
+  "baseline": {
+    "head": "8750d65a9109aad7514fac8b235846e373ab8b6c",
+    "tree": "79be83f61dd5349b3588387449a05706de2b8cbb"
+  },
+  "global_standard_owner": "DonkeyJJLove/ai_platform:LION/standards/README.md",
+  "rename_map": [
+    {
+      "from": "src/abstrakcyjna_symulacja_kaskady_sieciowej/dataengine/README.MD",
+      "to": "src/abstrakcyjna_symulacja_kaskady_sieciowej/dataengine/README.md"
+    }
+  ],
+  "additional_repairs": [],
+  "unresolved": [],
+  "delete_effect": "NONE",
+  "authority_effect": "NONE"
+}
