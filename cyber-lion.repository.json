@@ -109,6 +109,11 @@
         "path": "src/abstrakcyjna_symulacja_kaskady_sieciowej/simulation_contracts.py",
         "class": "CONTRACT",
         "currentness": "SOURCE_BOUND"
+      },
+      {
+        "path": "REPOSITORY_STANDARDIZATION_R1.json",
+        "class": "MACHINE_READABLE_ARCHITECTURE",
+        "currentness": "LOCAL_OWNER"
       }
     ],
     "discoverability": {
@@ -122,7 +127,8 @@
       "CAPABILITY_CHANGE",
       "CURRENTNESS_CHANGE",
       "REPOSITORY_ROLE_CHANGE",
-      "DEPENDENCY_CHANGE"
+      "DEPENDENCY_CHANGE",
+      "NAMING_STANDARD_CHANGE"
     ]
   }
 }
