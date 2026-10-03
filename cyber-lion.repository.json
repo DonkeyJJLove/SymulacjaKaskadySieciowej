@@ -74,12 +74,15 @@
     "semantic_exports": [
       "simulation",
       "falsification",
-      "sensitivity_analysis"
+      "sensitivity_analysis",
+      "relevance_stress_result",
+      "sensitivity_result"
     ],
     "semantic_imports": [
       "architecture",
       "formalization",
-      "currentness"
+      "currentness",
+      "semantic_relevance"
     ],
     "repository_dependencies": [
       "DonkeyJJLove/ai_platform"
