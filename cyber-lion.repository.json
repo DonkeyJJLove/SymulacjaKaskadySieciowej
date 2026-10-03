@@ -109,14 +109,19 @@
         "currentness": "LOCAL_OWNER"
       },
       {
-        "path": "src/abstrakcyjna_symulacja_kaskady_sieciowej/simulation_contracts.py",
-        "class": "CONTRACT",
-        "currentness": "SOURCE_BOUND"
-      },
-      {
         "path": "REPOSITORY_STANDARDIZATION_R1.json",
         "class": "MACHINE_READABLE_ARCHITECTURE",
         "currentness": "LOCAL_OWNER"
+      },
+      {
+        "path": "src/abstrakcyjna_symulacja_kaskady_sieciowej/federation_fixture_provider.py",
+        "class": "CONTRACT",
+        "currentness": "LOCAL_OWNER"
+      },
+      {
+        "path": "src/abstrakcyjna_symulacja_kaskady_sieciowej/simulation_contracts.py",
+        "class": "CONTRACT",
+        "currentness": "SOURCE_BOUND"
       }
     ],
     "discoverability": {
