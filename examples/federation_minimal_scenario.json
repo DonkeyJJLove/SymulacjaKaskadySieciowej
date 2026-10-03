@@ -1,0 +1,9 @@
+{
+  "scenario_id": "technical-cascade-fixture",
+  "parameters": {
+    "load": 0.7,
+    "redundancy": 0.2
+  },
+  "seed": 42,
+  "epistemic_class": "SIMULATED"
+}
